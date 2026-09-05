@@ -22,7 +22,6 @@ import java.net.URL;
 import java.text.NumberFormat;
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -32,7 +31,7 @@ import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
     private LinearLayout root;
-    private TextView priceView, signalView, rangeView, factorsView, historyView, scenariosView, explanationView, newsView, updatedView;
+    private TextView priceView, signalView, rangeView, factorsView, historyView, validationView, scenariosView, explanationView, newsView, updatedView;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
     @Override public void onCreate(Bundle savedInstanceState) {
@@ -84,6 +83,9 @@ public class MainActivity extends Activity {
         historyView = text("روند تاریخی\nدر حال دریافت داده...", 16, false);
         root.addView(card(historyView));
 
+        validationView = text("اعتبارسنجی روند\nدر حال محاسبه...", 16, false);
+        root.addView(card(validationView));
+
         scenariosView = text("سناریوها\n—", 16, false);
         root.addView(card(scenariosView));
 
@@ -102,7 +104,7 @@ public class MainActivity extends Activity {
         newsView = text("در حال دریافت اخبار...", 15, false);
         root.addView(card(newsView));
 
-        TextView disclaimer = text("توجه: این برنامه مدل احتمالی است و توصیه خرید یا فروش ارز نیست. درصد اطمینان، اطمینان مدل به جهت حرکت است و احتمال قطعی وقوع را تضمین نمی‌کند.", 13, false);
+        TextView disclaimer = text("توجه: این برنامه مدل احتمالی است و توصیه خرید یا فروش ارز نیست. درصد اطمینان، اطمینان مدل به جهت حرکت است و احتمال قطعی وقوع را تضمین نمی‌کند. اعتبارسنجی نمایش‌داده‌شده فقط روند تاریخی را می‌سنجد و به‌تنهایی اعتبار پیش‌بینی خبری را ثابت نمی‌کند.", 13, false);
         disclaimer.setTextColor(Color.DKGRAY);
         root.addView(disclaimer);
     }
@@ -120,6 +122,7 @@ public class MainActivity extends Activity {
         signalView.setText("سیگنال: در حال تحلیل...");
         factorsView.setText("عوامل مؤثر\nدر حال محاسبه...");
         historyView.setText("روند تاریخی\nدر حال دریافت داده...");
+        validationView.setText("اعتبارسنجی روند\nدر حال محاسبه...");
         scenariosView.setText("سناریوها\nدر حال محاسبه...");
 
         executor.execute(() -> {
@@ -285,12 +288,14 @@ public class MainActivity extends Activity {
         economy = cap(economy, -10, 10);
 
         HistoryStats hs = calculateHistory(history);
+        BacktestStats bt = backtestTrend(history);
         int trendScore = hs.trendScore;
         int volatilityScore = hs.volatilityScore;
-        int weighted = war + sanctions + oil + diplomacy + currency + economy + trendScore + volatilityScore;
+        int weighted = war + sanctions + oil + diplomacy + currency + economy + trendScore + volatilityScore + bt.validationScore;
 
-        int confidence = 45 + Math.min(38, Math.abs(weighted) * 3 + Math.min(14, totalEvidence * 2));
+        int confidence = 45 + Math.min(36, Math.abs(weighted) * 3 + Math.min(14, totalEvidence * 2));
         if (history.size() >= 5) confidence += 5;
+        if (bt.samples >= 8) confidence += Math.min(7, bt.accuracy >= 60 ? 7 : bt.accuracy >= 52 ? 4 : 1);
         if (totalEvidence == 0 && history.size() < 5) confidence = 25;
         confidence = cap(confidence, 20, 93);
 
@@ -316,15 +321,15 @@ public class MainActivity extends Activity {
         long sevenHigh = Math.round(base * (weighted >= 0 ? 1.0 + sevenDayMove : 1.0 + sevenDayMove * 0.40));
 
         String explanation;
-        if (weighted >= 8) explanation = "هم خبرهای پرریسک و هم روند تاریخی، متمایل به افزایش‌اند؛ مدل احتمال تداوم فشار صعودی و نوسان بالا را بیشتر می‌داند.";
+        if (weighted >= 8) explanation = "هم خبرهای پرریسک، هم روند تاریخی و هم اعتبارسنجی روند، سوگیری صعودی دارند؛ مدل احتمال تداوم فشار صعودی و نوسان بالا را بیشتر می‌داند.";
         else if (weighted <= -8) explanation = "وزن عوامل کاهنده بیشتر است و روند تاریخی نیز از سناریوی اصلاحی حمایت می‌کند؛ با این حال خبرهای سیاسی می‌توانند مسیر را سریع عوض کنند.";
         else explanation = "سیگنال‌های خبری و روند تاریخی کاملاً هم‌جهت نیستند؛ بنابراین مدل نوسان و واکنش شدید به خبر جدید را محتمل‌تر می‌داند.";
 
         if (evidence.length() == 0) evidence.append("• خبر مرتبط کافی برای تحلیل وزن‌دار دریافت نشد.\n");
 
         return new Prediction(signal, confidence, low24, high24, threeLow, threeHigh, sevenLow, sevenHigh,
-                war, sanctions, oil, diplomacy, currency, economy, trendScore, volatilityScore, weighted,
-                hs.trendPct, hs.volatilityPct, explanation, evidence.toString(), history.size());
+                war, sanctions, oil, diplomacy, currency, economy, trendScore, volatilityScore, bt.validationScore,
+                weighted, hs.trendPct, hs.volatilityPct, bt.samples, bt.hits, bt.accuracy, explanation, evidence.toString(), history.size());
     }
 
     private HistoryStats calculateHistory(ArrayList<Long> history) {
@@ -343,7 +348,6 @@ public class MainActivity extends Activity {
         else if (trendPct <= -2.0) trendScore = -2;
         else if (trendPct <= -0.75) trendScore = -1;
 
-        double sumAbs = 0;
         double sumSq = 0;
         int returns = 0;
         for (int i = 0; i < n - 1; i++) {
@@ -351,13 +355,51 @@ public class MainActivity extends Activity {
             double b = history.get(i + 1);
             if (b <= 0) continue;
             double r = ((a - b) / b) * 100.0;
-            sumAbs += Math.abs(r);
             sumSq += r * r;
             returns++;
         }
         double volatilityPct = returns > 0 ? Math.sqrt(sumSq / returns) : 0;
         int volatilityScore = volatilityPct >= 3.0 ? 2 : volatilityPct >= 1.5 ? 1 : 0;
         return new HistoryStats(trendPct, volatilityPct, trendScore, volatilityScore);
+    }
+
+    private BacktestStats backtestTrend(ArrayList<Long> history) {
+        if (history == null || history.size() < 8) return new BacktestStats(0, 0, 0.0, 0);
+
+        int samples = 0;
+        int hits = 0;
+        int lookback = Math.min(5, history.size() - 2);
+
+        // Data is newest-first. For each historical point i, use only i..i+lookback
+        // (current + older observations) to predict the next observation at i-1.
+        for (int i = history.size() - 2; i >= lookback; i--) {
+            long current = history.get(i);
+            long oldest = history.get(i + lookback);
+            long next = history.get(i - 1);
+            if (current <= 0 || oldest <= 0 || next <= 0) continue;
+
+            double trend = ((double) current - oldest) / oldest;
+            double actual = ((double) next - current) / current;
+            int predicted = trend > 0.003 ? 1 : trend < -0.003 ? -1 : 0;
+            int direction = actual > 0 ? 1 : actual < 0 ? -1 : 0;
+            if (predicted == 0 || direction == 0) continue;
+
+            samples++;
+            if (predicted == direction) hits++;
+        }
+
+        double accuracy = samples > 0 ? (100.0 * hits / samples) : 0.0;
+        int score;
+        if (samples < 5) score = 0;
+        else if (accuracy >= 65.0) score = 3;
+        else if (accuracy >= 58.0) score = 2;
+        else if (accuracy >= 52.0) score = 1;
+        else if (accuracy <= 35.0) score = -3;
+        else if (accuracy <= 42.0) score = -2;
+        else if (accuracy <= 48.0) score = -1;
+        else score = 0;
+
+        return new BacktestStats(samples, hits, accuracy, score);
     }
 
     private boolean containsAny(String text, String... words) {
@@ -385,6 +427,7 @@ public class MainActivity extends Activity {
                 "اقتصاد و تورم: " + signed(p.economy) + "\n" +
                 "روند تاریخی: " + signed(p.trendScore) + "\n" +
                 "نوسان تاریخی: " + signed(p.volatilityScore) + "\n" +
+                "اعتبارسنجی روند: " + signed(p.validationScore) + "\n" +
                 "امتیاز نهایی: " + signed(p.weighted));
 
         historyView.setText(
@@ -393,6 +436,14 @@ public class MainActivity extends Activity {
                 "روند " + Math.min(10, Math.max(1, p.historyCount - 1)) + " روز اخیر: " + signedPercent(p.trendPct) + "\n" +
                 "نوسان روزانه محاسبه‌شده: " + formatPercent(p.volatilityPct) + "\n" +
                 "اثر روند بر مدل: " + signed(p.trendScore));
+
+        validationView.setText(
+                "اعتبارسنجی تاریخیِ مؤلفه روند\n" +
+                "نمونه‌های قابل‌ارزیابی: " + p.backtestSamples + "\n" +
+                "پیش‌بینی‌های درست: " + p.backtestHits + "\n" +
+                "دقت جهت روند: " + formatPercent(p.backtestAccuracy) + "\n" +
+                "امتیاز اعتبارسنجی وارد مدل: " + signed(p.validationScore) + "\n" +
+                "نکته: این آزمون فقط مؤلفه روند قیمت را اعتبارسنجی می‌کند؛ تاریخچه خبری گذشته در این بک‌تست وجود ندارد.");
 
         scenariosView.setText(
                 "سناریوهای قیمتی بر اساس قیمت فعلی " + format(base) + " تومان\n\n" +
@@ -453,16 +504,29 @@ public class MainActivity extends Activity {
         }
     }
 
+    private static class BacktestStats {
+        final int samples, hits, validationScore;
+        final double accuracy;
+        BacktestStats(int samples, int hits, double accuracy, int validationScore) {
+            this.samples = samples;
+            this.hits = hits;
+            this.accuracy = accuracy;
+            this.validationScore = validationScore;
+        }
+    }
+
     private static class Prediction {
         final String signal, explanation, evidence;
-        final int confidence, war, sanctions, oil, diplomacy, currency, economy, trendScore, volatilityScore, weighted, historyCount;
+        final int confidence, war, sanctions, oil, diplomacy, currency, economy, trendScore, volatilityScore, validationScore, weighted, historyCount;
+        final int backtestSamples, backtestHits;
         final long low24, high24, threeLow, threeHigh, sevenLow, sevenHigh;
-        final double trendPct, volatilityPct;
+        final double trendPct, volatilityPct, backtestAccuracy;
 
         Prediction(String signal, int confidence, long low24, long high24, long threeLow, long threeHigh,
                    long sevenLow, long sevenHigh, int war, int sanctions, int oil, int diplomacy,
-                   int currency, int economy, int trendScore, int volatilityScore, int weighted,
-                   double trendPct, double volatilityPct, String explanation, String evidence, int historyCount) {
+                   int currency, int economy, int trendScore, int volatilityScore, int validationScore,
+                   int weighted, double trendPct, double volatilityPct, int backtestSamples,
+                   int backtestHits, double backtestAccuracy, String explanation, String evidence, int historyCount) {
             this.signal = signal;
             this.confidence = confidence;
             this.low24 = low24;
@@ -479,9 +543,13 @@ public class MainActivity extends Activity {
             this.economy = economy;
             this.trendScore = trendScore;
             this.volatilityScore = volatilityScore;
+            this.validationScore = validationScore;
             this.weighted = weighted;
             this.trendPct = trendPct;
             this.volatilityPct = volatilityPct;
+            this.backtestSamples = backtestSamples;
+            this.backtestHits = backtestHits;
+            this.backtestAccuracy = backtestAccuracy;
             this.explanation = explanation;
             this.evidence = evidence;
             this.historyCount = historyCount;
