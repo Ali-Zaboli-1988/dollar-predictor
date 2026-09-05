@@ -22,16 +22,17 @@ import java.net.URL;
 import java.text.NumberFormat;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
     private LinearLayout root;
-    private TextView priceView, signalView, rangeView, explanationView, factorsView, scenariosView, newsView, updatedView;
+    private TextView priceView, signalView, rangeView, factorsView, historyView, scenariosView, explanationView, newsView, updatedView;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
 
     @Override public void onCreate(Bundle savedInstanceState) {
@@ -63,7 +64,7 @@ public class MainActivity extends Activity {
         TextView title = text("پیش‌بینی هوشمند دلار", 27, true);
         title.setGravity(Gravity.CENTER);
         root.addView(title);
-        TextView sub = text("تحلیل بازار آزاد + جنگ + تحریم + نفت + سیاست + اخبار", 15, false);
+        TextView sub = text("تحلیل بازار آزاد + روند تاریخی + جنگ + تحریم + نفت + سیاست + اخبار", 15, false);
         sub.setGravity(Gravity.CENTER);
         root.addView(sub);
 
@@ -79,6 +80,9 @@ public class MainActivity extends Activity {
 
         factorsView = text("عوامل مؤثر\n—", 16, false);
         root.addView(card(factorsView));
+
+        historyView = text("روند تاریخی\nدر حال دریافت داده...", 16, false);
+        root.addView(card(historyView));
 
         scenariosView = text("سناریوها\n—", 16, false);
         root.addView(card(scenariosView));
@@ -115,13 +119,15 @@ public class MainActivity extends Activity {
         priceView.setText("قیمت دلار\nدر حال دریافت...");
         signalView.setText("سیگنال: در حال تحلیل...");
         factorsView.setText("عوامل مؤثر\nدر حال محاسبه...");
+        historyView.setText("روند تاریخی\nدر حال دریافت داده...");
         scenariosView.setText("سناریوها\nدر حال محاسبه...");
 
         executor.execute(() -> {
             long price = fetchDollarPrice();
             ArrayList<String> headlines = fetchNews();
-            Prediction prediction = analyze(price, headlines);
-            runOnUiThread(() -> showResult(price, headlines, prediction));
+            ArrayList<Long> history = fetchHistoricalCloses();
+            Prediction prediction = analyze(price, history, headlines);
+            runOnUiThread(() -> showResult(price, history, headlines, prediction));
         });
     }
 
@@ -159,6 +165,41 @@ public class MainActivity extends Activity {
         return 0;
     }
 
+    private ArrayList<Long> fetchHistoricalCloses() {
+        ArrayList<Long> closes = new ArrayList<>();
+        String[] urls = {
+                "https://english.tgju.org/profile/price_dollar_rl/history",
+                "https://www.tgju.org/profile/price_dollar_rl/charts-data/history"
+        };
+
+        for (String url : urls) {
+            try {
+                String raw = get(url);
+                String normalized = normalizeDigits(raw);
+                normalized = normalized.replaceAll("<[^>]+>", " ").replaceAll("&nbsp;", " ").replaceAll("\\s+", " ");
+                Pattern row = Pattern.compile(
+                        "([0-9]{1,3}(?:,[0-9]{3}){1,2})\\s+" +
+                        "([0-9]{1,3}(?:,[0-9]{3}){1,2})\\s+" +
+                        "([0-9]{1,3}(?:,[0-9]{3}){1,2})\\s+" +
+                        "([0-9]{1,3}(?:,[0-9]{3}){1,2})\\s+" +
+                        "(?:[-0-9.,%]+)\\s+" +
+                        "(?:[0-9./-]+)");
+                Matcher m = row.matcher(normalized);
+                while (m.find() && closes.size() < 30) {
+                    String close = m.group(4).replace(",", "");
+                    try {
+                        long value = Long.parseLong(close);
+                        if (value > 100000) value /= 10;
+                        if (value >= 10000 && value <= 1000000) closes.add(value);
+                    } catch (Exception ignored) {}
+                }
+                if (closes.size() >= 5) return closes;
+                closes.clear();
+            } catch (Exception ignored) {}
+        }
+        return closes;
+    }
+
     private String normalizeDigits(String value) {
         if (value == null) return "";
         return value
@@ -182,15 +223,13 @@ public class MainActivity extends Activity {
                 int event;
                 boolean item = false;
                 while ((event = x.next()) != XmlPullParser.END_DOCUMENT && out.size() < 12) {
-                    if (event == XmlPullParser.START_TAG && "item".equals(x.getName())) {
-                        item = true;
-                    } else if (event == XmlPullParser.END_TAG && "item".equals(x.getName())) {
-                        item = false;
-                    } else if (item && event == XmlPullParser.START_TAG && "title".equals(x.getName())) {
+                    if (event == XmlPullParser.START_TAG && "item".equals(x.getName())) item = true;
+                    else if (event == XmlPullParser.END_TAG && "item".equals(x.getName())) item = false;
+                    else if (item && event == XmlPullParser.START_TAG && "title".equals(x.getName())) {
                         String title = x.nextText();
                         if (title != null) {
                             title = title.trim();
-                            String key = normalizeHeadlineKey(title);
+                            String key = title.toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
                             if (!key.isEmpty() && seen.add(key)) out.add(title);
                         }
                     }
@@ -200,13 +239,8 @@ public class MainActivity extends Activity {
         return out;
     }
 
-    private Prediction analyze(long price, ArrayList<String> news) {
-        int war = 0;
-        int sanctions = 0;
-        int oil = 0;
-        int diplomacy = 0;
-        int currency = 0;
-        int economy = 0;
+    private Prediction analyze(long price, ArrayList<Long> history, ArrayList<String> news) {
+        int war = 0, sanctions = 0, oil = 0, diplomacy = 0, currency = 0, economy = 0;
         int totalEvidence = 0;
         StringBuilder evidence = new StringBuilder();
         Set<String> evidenceSeen = new HashSet<>();
@@ -214,67 +248,50 @@ public class MainActivity extends Activity {
         for (String headline : news) {
             String s = headline.toLowerCase(Locale.ROOT);
             boolean relevant = false;
-            int warHit = 0;
-            int sanctionsHit = 0;
-            int oilHit = 0;
-            int diplomacyHit = 0;
-            int currencyHit = 0;
-            int economyHit = 0;
 
             if (containsAny(s, "war", "attack", "strike", "missile", "conflict", "escalation", "military", "hormuz", "blockade", "جنگ", "حمله", "موشک", "درگیری")) {
-                warHit = 3;
-                relevant = true;
+                war += 3; relevant = true;
             }
             if (containsAny(s, "sanction", "sanctions", "secondary sanctions", "treasury", "financial pressure", "تحریم", "خزانه داری")) {
-                sanctionsHit = 3;
-                relevant = true;
+                sanctions += 3; relevant = true;
             }
             if (containsAny(s, "oil export", "oil exports", "crude", "oil price", "brent", "wti", "tanker", "shipping", "strait of hormuz", "نفت", "صادرات نفت", "هرمز")) {
-                oilHit = 2;
-                relevant = true;
+                oil += 2; relevant = true;
             }
             if (containsAny(s, "ceasefire", "talks", "negotiation", "negotiations", "agreement", "deal", "truce", "de-escalation", "peace", "آتش بس", "مذاکره", "توافق", "صلح")) {
-                diplomacyHit = -4;
-                relevant = true;
+                diplomacy -= 4; relevant = true;
             }
             if (containsAny(s, "central bank", "foreign currency", "fx intervention", "currency intervention", "inject", "reserves", "rial", "dollar", "ارز", "بانک مرکزی", "ریال", "دلار")) {
                 relevant = true;
-                currencyHit = 1;
-                if (containsAny(s, "intervention", "inject", "reserves", "enough foreign currency", "مداخله", "تزریق")) {
-                    currencyHit = -3;
-                }
+                currency += 1;
+                if (containsAny(s, "intervention", "inject", "reserves", "enough foreign currency", "مداخله", "تزریق")) currency -= 3;
             }
             if (containsAny(s, "inflation", "inflationary", "imports", "trade", "economic crisis", "economy", "تورم", "واردات", "بحران اقتصادی")) {
-                economyHit = 2;
-                relevant = true;
+                economy += 2; relevant = true;
             }
 
-            if (!relevant) continue;
-
-            war += warHit;
-            sanctions += sanctionsHit;
-            oil += oilHit;
-            diplomacy += diplomacyHit;
-            currency += currencyHit;
-            economy += economyHit;
-            totalEvidence++;
-
-            String key = normalizeHeadlineKey(headline);
-            if (evidenceSeen.add(key)) {
-                evidence.append("• ").append(headline).append("\n");
+            if (relevant) {
+                totalEvidence++;
+                String key = headline.toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
+                if (evidenceSeen.add(key)) evidence.append("• ").append(headline).append("\n");
             }
         }
 
-        war = cap(war, 0, 12);
-        sanctions = cap(sanctions, 0, 12);
-        oil = cap(oil, 0, 10);
-        diplomacy = cap(diplomacy, -12, 0);
+        war = cap(war, -12, 12);
+        sanctions = cap(sanctions, -12, 12);
+        oil = cap(oil, -10, 10);
+        diplomacy = cap(diplomacy, -12, 12);
         currency = cap(currency, -8, 8);
-        economy = cap(economy, 0, 10);
+        economy = cap(economy, -10, 10);
 
-        int weighted = war + sanctions + oil + diplomacy + currency + economy;
-        int confidence = 48 + Math.min(45, Math.abs(weighted) * 3 + Math.min(15, totalEvidence * 2));
-        if (totalEvidence == 0) confidence = 25;
+        HistoryStats hs = calculateHistory(history);
+        int trendScore = hs.trendScore;
+        int volatilityScore = hs.volatilityScore;
+        int weighted = war + sanctions + oil + diplomacy + currency + economy + trendScore + volatilityScore;
+
+        int confidence = 45 + Math.min(38, Math.abs(weighted) * 3 + Math.min(14, totalEvidence * 2));
+        if (history.size() >= 5) confidence += 5;
+        if (totalEvidence == 0 && history.size() < 5) confidence = 25;
         confidence = cap(confidence, 20, 93);
 
         String signal;
@@ -282,44 +299,65 @@ public class MainActivity extends Activity {
         else if (weighted <= -8) signal = "احتمال کاهش 🟢";
         else signal = "نوسانی / نامشخص 🟡";
 
-        long base = price > 0 ? price : 220000;
-        double move24 = weighted >= 8 ? 0.035 : weighted <= -8 ? 0.025 : 0.018;
-        if (weighted >= 14) move24 = 0.050;
-        if (weighted <= -14) move24 = 0.040;
+        long base = price > 0 ? price : (history.isEmpty() ? 220000 : history.get(0));
+        double historyMove = hs.volatilityPct > 0 ? Math.min(0.055, Math.max(0.012, hs.volatilityPct * 1.15 / 100.0)) : 0.018;
+        double move24 = weighted >= 8 ? Math.max(0.032, historyMove) : weighted <= -8 ? Math.max(0.024, historyMove * 0.9) : Math.max(0.016, historyMove * 0.75);
+        if (weighted >= 14) move24 = Math.max(move24, 0.050);
+        if (weighted <= -14) move24 = Math.max(move24, 0.040);
 
         long low24 = Math.round(base * (weighted >= 0 ? 1.0 - move24 * 0.55 : 1.0 - move24));
         long high24 = Math.round(base * (weighted >= 0 ? 1.0 + move24 : 1.0 + move24 * 0.55));
 
-        double threeDayMove = Math.min(0.10, move24 * 1.8);
-        double sevenDayMove = Math.min(0.18, move24 * 2.9);
+        double threeDayMove = Math.min(0.11, move24 * 1.75);
+        double sevenDayMove = Math.min(0.20, move24 * 2.7);
         long threeLow = Math.round(base * (weighted >= 0 ? 1.0 - threeDayMove * 0.45 : 1.0 - threeDayMove));
         long threeHigh = Math.round(base * (weighted >= 0 ? 1.0 + threeDayMove : 1.0 + threeDayMove * 0.45));
         long sevenLow = Math.round(base * (weighted >= 0 ? 1.0 - sevenDayMove * 0.40 : 1.0 - sevenDayMove));
         long sevenHigh = Math.round(base * (weighted >= 0 ? 1.0 + sevenDayMove : 1.0 + sevenDayMove * 0.40));
 
         String explanation;
-        if (weighted >= 8) {
-            explanation = "مجموع ریسک‌های خبری و بنیادی فعلاً صعودی است؛ مخصوصاً فشار جنگی/تحریمی و محدودیت جریان ارز. در چنین وضعی جهش‌های کوتاه‌مدت می‌تواند سریع‌تر از روند عادی رخ دهد.";
-        } else if (weighted <= -8) {
-            explanation = "وزن اخبار کاهنده ریسک بیشتر است؛ کاهش تنش، پیشرفت مذاکرات یا افزایش عرضه ارز می‌تواند فشار نزولی ایجاد کند.";
-        } else {
-            explanation = "سیگنال‌ها با هم هم‌جهت نیستند. بنابراین مدل به‌جای یک جهت قطعی، نوسان و واکنش شدید به خبر جدید را محتمل‌تر می‌داند.";
-        }
+        if (weighted >= 8) explanation = "هم خبرهای پرریسک و هم روند تاریخی، متمایل به افزایش‌اند؛ مدل احتمال تداوم فشار صعودی و نوسان بالا را بیشتر می‌داند.";
+        else if (weighted <= -8) explanation = "وزن عوامل کاهنده بیشتر است و روند تاریخی نیز از سناریوی اصلاحی حمایت می‌کند؛ با این حال خبرهای سیاسی می‌توانند مسیر را سریع عوض کنند.";
+        else explanation = "سیگنال‌های خبری و روند تاریخی کاملاً هم‌جهت نیستند؛ بنابراین مدل نوسان و واکنش شدید به خبر جدید را محتمل‌تر می‌داند.";
 
         if (evidence.length() == 0) evidence.append("• خبر مرتبط کافی برای تحلیل وزن‌دار دریافت نشد.\n");
 
         return new Prediction(signal, confidence, low24, high24, threeLow, threeHigh, sevenLow, sevenHigh,
-                war, sanctions, oil, diplomacy, currency, economy, weighted, explanation, evidence.toString());
+                war, sanctions, oil, diplomacy, currency, economy, trendScore, volatilityScore, weighted,
+                hs.trendPct, hs.volatilityPct, explanation, evidence.toString(), history.size());
     }
 
-    private String normalizeHeadlineKey(String headline) {
-        if (headline == null) return "";
-        String key = headline.toLowerCase(Locale.ROOT);
-        key = key.replaceAll("https?://\\S+", "");
-        key = key.replaceAll("\\s+[-|–—]\\s+[^-–—|]+$", "");
-        key = key.replaceAll("[^\\p{L}\\p{Nd}]", " ");
-        key = key.replaceAll("\\s+", " ").trim();
-        return key;
+    private HistoryStats calculateHistory(ArrayList<Long> history) {
+        if (history == null || history.size() < 2) return new HistoryStats(0, 0, 0, 0);
+        int n = history.size();
+        int lookback = Math.min(10, n - 1);
+        double recent = history.get(0);
+        double old = history.get(lookback);
+        double trendPct = old > 0 ? ((recent - old) / old) * 100.0 : 0;
+
+        int trendScore = 0;
+        if (trendPct >= 5.0) trendScore = 4;
+        else if (trendPct >= 2.0) trendScore = 2;
+        else if (trendPct >= 0.75) trendScore = 1;
+        else if (trendPct <= -5.0) trendScore = -4;
+        else if (trendPct <= -2.0) trendScore = -2;
+        else if (trendPct <= -0.75) trendScore = -1;
+
+        double sumAbs = 0;
+        double sumSq = 0;
+        int returns = 0;
+        for (int i = 0; i < n - 1; i++) {
+            double a = history.get(i);
+            double b = history.get(i + 1);
+            if (b <= 0) continue;
+            double r = ((a - b) / b) * 100.0;
+            sumAbs += Math.abs(r);
+            sumSq += r * r;
+            returns++;
+        }
+        double volatilityPct = returns > 0 ? Math.sqrt(sumSq / returns) : 0;
+        int volatilityScore = volatilityPct >= 3.0 ? 2 : volatilityPct >= 1.5 ? 1 : 0;
+        return new HistoryStats(trendPct, volatilityPct, trendScore, volatilityScore);
     }
 
     private boolean containsAny(String text, String... words) {
@@ -331,8 +369,8 @@ public class MainActivity extends Activity {
         return Math.max(min, Math.min(max, value));
     }
 
-    private void showResult(long price, ArrayList<String> news, Prediction p) {
-        long base = price > 0 ? price : 220000;
+    private void showResult(long price, ArrayList<Long> history, ArrayList<String> news, Prediction p) {
+        long base = price > 0 ? price : (history.isEmpty() ? 220000 : history.get(0));
         priceView.setText(price > 0 ? "قیمت تقریبی دلار\n" + format(price) + " تومان" : "قیمت دلار\nدریافت نشد");
         signalView.setText("سیگنال ۲۴ ساعته: " + p.signal + "\nدرصد اطمینان مدل: " + p.confidence + "%");
         rangeView.setText("بازه احتمالی ۲۴ ساعت آینده\n" + format(p.low24) + " تا " + format(p.high24) + " تومان");
@@ -345,7 +383,16 @@ public class MainActivity extends Activity {
                 "مذاکره و کاهش تنش: " + signed(p.diplomacy) + "\n" +
                 "ارز و مداخله بانک مرکزی: " + signed(p.currency) + "\n" +
                 "اقتصاد و تورم: " + signed(p.economy) + "\n" +
+                "روند تاریخی: " + signed(p.trendScore) + "\n" +
+                "نوسان تاریخی: " + signed(p.volatilityScore) + "\n" +
                 "امتیاز نهایی: " + signed(p.weighted));
+
+        historyView.setText(
+                "روند تاریخی دلار\n" +
+                "تعداد داده‌های روزانه دریافت‌شده: " + p.historyCount + "\n" +
+                "روند " + Math.min(10, Math.max(1, p.historyCount - 1)) + " روز اخیر: " + signedPercent(p.trendPct) + "\n" +
+                "نوسان روزانه محاسبه‌شده: " + formatPercent(p.volatilityPct) + "\n" +
+                "اثر روند بر مدل: " + signed(p.trendScore));
 
         scenariosView.setText(
                 "سناریوهای قیمتی بر اساس قیمت فعلی " + format(base) + " تومان\n\n" +
@@ -362,10 +409,12 @@ public class MainActivity extends Activity {
         if (news.isEmpty()) n.append("خبر جدیدی دریافت نشد.");
         else for (int i = 0; i < news.size(); i++) n.append(i + 1).append(". ").append(news.get(i)).append("\n\n");
         newsView.setText(n.toString());
-        updatedView.setText("آخرین بروزرسانی: همین الان | " + news.size() + " خبر بررسی شد");
+        updatedView.setText("آخرین بروزرسانی: همین الان | " + news.size() + " خبر | " + p.historyCount + " رکورد تاریخی");
     }
 
     private String signed(int n) { return n > 0 ? "+" + n : String.valueOf(n); }
+    private String signedPercent(double n) { return (n > 0 ? "+" : "") + String.format(Locale.US, "%.2f%%", n); }
+    private String formatPercent(double n) { return String.format(Locale.US, "%.2f%%", n); }
 
     private String format(long n) {
         return NumberFormat.getNumberInstance(Locale.US).format(n);
@@ -393,14 +442,27 @@ public class MainActivity extends Activity {
         executor.shutdownNow();
     }
 
+    private static class HistoryStats {
+        final double trendPct, volatilityPct;
+        final int trendScore, volatilityScore;
+        HistoryStats(double trendPct, double volatilityPct, int trendScore, int volatilityScore) {
+            this.trendPct = trendPct;
+            this.volatilityPct = volatilityPct;
+            this.trendScore = trendScore;
+            this.volatilityScore = volatilityScore;
+        }
+    }
+
     private static class Prediction {
         final String signal, explanation, evidence;
-        final int confidence, war, sanctions, oil, diplomacy, currency, economy, weighted;
+        final int confidence, war, sanctions, oil, diplomacy, currency, economy, trendScore, volatilityScore, weighted, historyCount;
         final long low24, high24, threeLow, threeHigh, sevenLow, sevenHigh;
+        final double trendPct, volatilityPct;
 
         Prediction(String signal, int confidence, long low24, long high24, long threeLow, long threeHigh,
                    long sevenLow, long sevenHigh, int war, int sanctions, int oil, int diplomacy,
-                   int currency, int economy, int weighted, String explanation, String evidence) {
+                   int currency, int economy, int trendScore, int volatilityScore, int weighted,
+                   double trendPct, double volatilityPct, String explanation, String evidence, int historyCount) {
             this.signal = signal;
             this.confidence = confidence;
             this.low24 = low24;
@@ -415,9 +477,14 @@ public class MainActivity extends Activity {
             this.diplomacy = diplomacy;
             this.currency = currency;
             this.economy = economy;
+            this.trendScore = trendScore;
+            this.volatilityScore = volatilityScore;
             this.weighted = weighted;
+            this.trendPct = trendPct;
+            this.volatilityPct = volatilityPct;
             this.explanation = explanation;
             this.evidence = evidence;
+            this.historyCount = historyCount;
         }
     }
 }
