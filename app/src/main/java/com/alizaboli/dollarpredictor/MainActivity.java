@@ -135,9 +135,6 @@ public class MainActivity extends Activity {
                 String html = get(u);
                 long raw = extractPrice(html);
                 if (raw <= 0) continue;
-
-                // TGJU's dollar_rl is normally Rial; Bonbast-style values are usually Toman.
-                // Use a conservative threshold instead of dividing every large value by 10.
                 if (raw >= 500000) return raw / 10;
                 if (raw >= 10000) return raw;
             } catch (Exception ignored) {}
@@ -193,7 +190,7 @@ public class MainActivity extends Activity {
                         String title = x.nextText();
                         if (title != null) {
                             title = title.trim();
-                            String key = title.toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
+                            String key = normalizeHeadlineKey(title);
                             if (!key.isEmpty() && seen.add(key)) out.add(title);
                         }
                     }
@@ -216,60 +213,66 @@ public class MainActivity extends Activity {
 
         for (String headline : news) {
             String s = headline.toLowerCase(Locale.ROOT);
-            int headlineScore = 0;
             boolean relevant = false;
+            int warHit = 0;
+            int sanctionsHit = 0;
+            int oilHit = 0;
+            int diplomacyHit = 0;
+            int currencyHit = 0;
+            int economyHit = 0;
 
             if (containsAny(s, "war", "attack", "strike", "missile", "conflict", "escalation", "military", "hormuz", "blockade", "جنگ", "حمله", "موشک", "درگیری")) {
-                war += 3;
-                headlineScore += 3;
+                warHit = 3;
                 relevant = true;
             }
             if (containsAny(s, "sanction", "sanctions", "secondary sanctions", "treasury", "financial pressure", "تحریم", "خزانه داری")) {
-                sanctions += 3;
-                headlineScore += 3;
+                sanctionsHit = 3;
                 relevant = true;
             }
             if (containsAny(s, "oil export", "oil exports", "crude", "oil price", "brent", "wti", "tanker", "shipping", "strait of hormuz", "نفت", "صادرات نفت", "هرمز")) {
-                oil += 2;
-                headlineScore += 2;
+                oilHit = 2;
                 relevant = true;
             }
             if (containsAny(s, "ceasefire", "talks", "negotiation", "negotiations", "agreement", "deal", "truce", "de-escalation", "peace", "آتش بس", "مذاکره", "توافق", "صلح")) {
-                diplomacy -= 4;
-                headlineScore -= 4;
+                diplomacyHit = -4;
                 relevant = true;
             }
             if (containsAny(s, "central bank", "foreign currency", "fx intervention", "currency intervention", "inject", "reserves", "rial", "dollar", "ارز", "بانک مرکزی", "ریال", "دلار")) {
-                currency += 1;
-                if (containsAny(s, "intervention", "inject", "reserves", "enough foreign currency", "مداخله", "تزریق")) currency -= 3;
-                headlineScore += currency >= 0 ? 1 : -2;
                 relevant = true;
+                currencyHit = 1;
+                if (containsAny(s, "intervention", "inject", "reserves", "enough foreign currency", "مداخله", "تزریق")) {
+                    currencyHit = -3;
+                }
             }
             if (containsAny(s, "inflation", "inflationary", "imports", "trade", "economic crisis", "economy", "تورم", "واردات", "بحران اقتصادی")) {
-                economy += 2;
-                headlineScore += 2;
+                economyHit = 2;
                 relevant = true;
             }
 
-            if (relevant) {
-                totalEvidence++;
-                String key = headline.toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
-                if (evidenceSeen.add(key)) {
-                    evidence.append("• ").append(headline).append("\n");
-                }
+            if (!relevant) continue;
+
+            war += warHit;
+            sanctions += sanctionsHit;
+            oil += oilHit;
+            diplomacy += diplomacyHit;
+            currency += currencyHit;
+            economy += economyHit;
+            totalEvidence++;
+
+            String key = normalizeHeadlineKey(headline);
+            if (evidenceSeen.add(key)) {
+                evidence.append("• ").append(headline).append("\n");
             }
         }
 
-        // Prevent duplicate stories from dominating the model.
-        war = cap(war, -12, 12);
-        sanctions = cap(sanctions, -12, 12);
-        oil = cap(oil, -10, 10);
-        diplomacy = cap(diplomacy, -12, 12);
+        war = cap(war, 0, 12);
+        sanctions = cap(sanctions, 0, 12);
+        oil = cap(oil, 0, 10);
+        diplomacy = cap(diplomacy, -12, 0);
         currency = cap(currency, -8, 8);
-        economy = cap(economy, -10, 10);
+        economy = cap(economy, 0, 10);
 
         int weighted = war + sanctions + oil + diplomacy + currency + economy;
-        int maxPossible = Math.max(12, totalEvidence * 4);
         int confidence = 48 + Math.min(45, Math.abs(weighted) * 3 + Math.min(15, totalEvidence * 2));
         if (totalEvidence == 0) confidence = 25;
         confidence = cap(confidence, 20, 93);
@@ -306,7 +309,17 @@ public class MainActivity extends Activity {
         if (evidence.length() == 0) evidence.append("• خبر مرتبط کافی برای تحلیل وزن‌دار دریافت نشد.\n");
 
         return new Prediction(signal, confidence, low24, high24, threeLow, threeHigh, sevenLow, sevenHigh,
-                war, sanctions, oil, diplomacy, currency, economy, weighted, explanation, evidence.toString(), maxPossible);
+                war, sanctions, oil, diplomacy, currency, economy, weighted, explanation, evidence.toString());
+    }
+
+    private String normalizeHeadlineKey(String headline) {
+        if (headline == null) return "";
+        String key = headline.toLowerCase(Locale.ROOT);
+        key = key.replaceAll("https?://\\S+", "");
+        key = key.replaceAll("\\s+[-|–—]\\s+[^-–—|]+$", "");
+        key = key.replaceAll("[^\\p{L}\\p{Nd}]", " ");
+        key = key.replaceAll("\\s+", " ").trim();
+        return key;
     }
 
     private boolean containsAny(String text, String... words) {
@@ -382,12 +395,12 @@ public class MainActivity extends Activity {
 
     private static class Prediction {
         final String signal, explanation, evidence;
-        final int confidence, war, sanctions, oil, diplomacy, currency, economy, weighted, maxPossible;
+        final int confidence, war, sanctions, oil, diplomacy, currency, economy, weighted;
         final long low24, high24, threeLow, threeHigh, sevenLow, sevenHigh;
 
         Prediction(String signal, int confidence, long low24, long high24, long threeLow, long threeHigh,
                    long sevenLow, long sevenHigh, int war, int sanctions, int oil, int diplomacy,
-                   int currency, int economy, int weighted, String explanation, String evidence, int maxPossible) {
+                   int currency, int economy, int weighted, String explanation, String evidence) {
             this.signal = signal;
             this.confidence = confidence;
             this.low24 = low24;
@@ -405,7 +418,6 @@ public class MainActivity extends Activity {
             this.weighted = weighted;
             this.explanation = explanation;
             this.evidence = evidence;
-            this.maxPossible = maxPossible;
         }
     }
 }
