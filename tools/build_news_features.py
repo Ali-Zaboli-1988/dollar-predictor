@@ -1,15 +1,5 @@
 #!/usr/bin/env python3
-"""Build daily news factor features aligned to a historical USD/IRR price CSV.
-
-Input CSV must contain: date,close
-Output CSV contains: date,close,war,sanctions,oil,diplomacy,currency,economy
-
-The news source is GDELT DOC 2.0 Article List. GDELT exposes article search over
-historical windows and returns publication/seen timestamps that can be aggregated
-by UTC date. This tool intentionally keeps feature extraction deterministic so the
-result can be walk-forward validated by calibrate_weights.py.
-"""
-
+"""Build daily news factor features aligned to a historical USD/IRR price CSV."""
 from __future__ import annotations
 
 import argparse
@@ -19,6 +9,7 @@ import json
 import time
 from collections import defaultdict
 from pathlib import Path
+from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
@@ -51,6 +42,8 @@ FACTOR_KEYWORDS = {
 }
 
 INTERVENTION_TERMS = ("intervention", "inject", "reserves", "central bank buying")
+GDELT_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
+MAX_RETRIES = 5
 
 
 def parse_date(value: str) -> dt.date:
@@ -91,6 +84,16 @@ def day_bounds(day: dt.date) -> tuple[str, str]:
     return start.strftime("%Y%m%d%H%M%S"), end.strftime("%Y%m%d%H%M%S")
 
 
+def _retry_delay(error: HTTPError, attempt: int) -> float:
+    retry_after = error.headers.get("Retry-After") if error.headers else None
+    if retry_after:
+        try:
+            return max(1.0, min(300.0, float(retry_after)))
+        except ValueError:
+            pass
+    return min(300.0, 15.0 * (2 ** (attempt - 1)))
+
+
 def fetch_gdelt(day: dt.date, timeout: int = 30) -> list[str]:
     start, end = day_bounds(day)
     query = '(Iran OR Tehran) (dollar OR rial OR sanctions OR oil OR war OR ceasefire OR negotiation OR economy)'
@@ -103,12 +106,27 @@ def fetch_gdelt(day: dt.date, timeout: int = 30) -> list[str]:
         "STARTDATETIME": start,
         "ENDDATETIME": end,
     }
-    url = "https://api.gdeltproject.org/api/v2/doc/doc?" + urlencode(params)
-    request = Request(url, headers={"User-Agent": "dollar-predictor/1.0"})
-    with urlopen(request, timeout=timeout) as response:
-        payload = json.load(response)
-    articles = payload.get("articles", [])
-    return [str(article.get("title", "")) for article in articles if article.get("title")]
+    url = GDELT_URL + "?" + urlencode(params)
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        request = Request(
+            url,
+            headers={
+                "User-Agent": "dollar-predictor/1.0 (+historical-news-features)",
+                "Accept": "application/json",
+            },
+        )
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                payload = json.load(response)
+            articles = payload.get("articles", [])
+            return [str(article.get("title", "")) for article in articles if article.get("title")]
+        except HTTPError as exc:
+            if exc.code != 429 or attempt == MAX_RETRIES:
+                raise
+            time.sleep(_retry_delay(exc, attempt))
+
+    raise RuntimeError("GDELT request exhausted retries")
 
 
 def build(prices: list[dict[str, str]], sleep_seconds: float) -> list[dict[str, str]]:
@@ -141,6 +159,7 @@ def build(prices: list[dict[str, str]], sleep_seconds: float) -> list[dict[str, 
 
 
 def write_csv(rows: list[dict[str, str]], path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     fields = ["date", "close", *FACTOR_KEYWORDS]
     with path.open("w", encoding="utf-8", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=fields)
@@ -152,7 +171,7 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("prices", type=Path, help="Historical price CSV with date,close columns")
     parser.add_argument("output", type=Path, help="Output training CSV")
-    parser.add_argument("--sleep", type=float, default=0.25, help="Delay between GDELT day queries")
+    parser.add_argument("--sleep", type=float, default=1.5, help="Delay between GDELT day queries")
     args = parser.parse_args()
 
     rows = load_prices(args.prices)
