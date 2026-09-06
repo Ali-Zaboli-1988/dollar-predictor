@@ -1,0 +1,37 @@
+name: Validate Factor Calibration
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  test-calibration:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run calibrator regression tests
+        run: python -m unittest discover -s tools -p 'test_*.py' -v
+
+      - name: Generate deterministic calibration fixture
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          rows = ['close,war,sanctions,oil,diplomacy,currency,economy']
+          price = 100.0
+          for i in range(40):
+              factor = 1 if i % 2 == 0 else -1
+              price *= 1.006 if factor > 0 else 0.994
+              rows.append(f'{price:.6f},{factor},0,0,0,0,0')
+          Path('/tmp/calibration.csv').write_text('\n'.join(rows) + '\n', encoding='utf-8')
+          PY
+
+      - name: Run walk-forward calibration
+        run: python tools/calibrate_weights.py /tmp/calibration.csv --train-size 20 --test-size 5 --min-move 0.001
