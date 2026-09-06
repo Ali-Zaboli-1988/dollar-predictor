@@ -1,0 +1,56 @@
+name: Real Data Calibration
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'data/tgju_usd_free_market.csv'
+      - 'tools/build_news_features.py'
+      - 'tools/calibrate_weights.py'
+      - 'tools/validate_training_data.py'
+      - '.github/workflows/real-calibration.yml'
+
+jobs:
+  calibrate-real-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run data validation tests
+        working-directory: tools
+        run: python test_training_data.py
+
+      - name: Build historical news features from GDELT
+        run: |
+          python tools/build_news_features.py \
+            data/tgju_usd_free_market.csv \
+            data/tgju_usd_free_market_enriched.csv \
+            --sleep 0.5
+
+      - name: Validate enriched training data
+        working-directory: tools
+        run: python validate_training_data.py ../data/tgju_usd_free_market_enriched.csv
+
+      - name: Run strict walk-forward calibration
+        run: |
+          python tools/calibrate_weights.py \
+            data/tgju_usd_free_market_enriched.csv \
+            --train-size 20 \
+            --test-size 5 \
+            --threshold 1.0 \
+            --min-move 0.003 \
+            --min-weight 0 \
+            --max-weight 2
+
+      - name: Upload enriched dataset
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-training-data
+          path: data/tgju_usd_free_market_enriched.csv
