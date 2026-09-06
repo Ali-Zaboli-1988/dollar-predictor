@@ -8,8 +8,8 @@ class TgjuFetcherTests(unittest.TestCase):
     def test_extract_rows_uses_close_and_gregorian_date(self):
         payload = {
             "data": [
-                ["1,000", "900", "1,100", "1,050", "1,050", "10", "1%", "2026/09/05", "1405/06/14"],
-                ["950", "900", "1,000", "980", "980", "-", "-", "2026/09/04", "1405/06/13"],
+                ["1,000", "900", "1,100", "1,050", "10", "1%", "2026/09/05", "1405/06/14"],
+                ["950", "900", "1,000", "980", "-", "-", "2026/09/04", "1405/06/13"],
             ]
         }
         self.assertEqual(
@@ -23,8 +23,8 @@ class TgjuFetcherTests(unittest.TestCase):
     def test_extract_rows_deduplicates_dates(self):
         payload = {
             "data": [
-                ["", "", "", "", "1,000", "", "", "2026/09/05", ""],
-                ["", "", "", "", "1,050", "", "", "2026/09/05", ""],
+                ["", "", "", "1,000", "", "", "2026/09/05", ""],
+                ["", "", "", "1,050", "", "", "2026/09/05", ""],
             ]
         }
         rows = fetcher.extract_rows(payload)
