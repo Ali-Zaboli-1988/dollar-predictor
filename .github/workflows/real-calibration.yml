@@ -23,6 +23,10 @@ jobs:
         working-directory: tools
         run: python test_fetch_tgju_history.py
 
+      - name: Run price history integrity tests
+        working-directory: tools
+        run: python test_validate_price_history.py
+
       - name: Run news feature tests
         working-directory: tools
         run: python test_news_features.py
@@ -32,6 +36,12 @@ jobs:
           python tools/fetch_tgju_history.py \
             data/tgju_usd_free_market_live.csv \
             --length 75
+
+      - name: Validate fetched price history
+        run: |
+          python tools/validate_price_history.py \
+            data/tgju_usd_free_market_live.csv \
+            --minimum-rows 60
 
       - name: Build historical news features from GDELT
         run: |
