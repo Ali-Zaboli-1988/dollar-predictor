@@ -2,12 +2,6 @@ name: Real Data Calibration
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ main ]
-    paths:
-      - 'data/**'
-      - 'tools/**'
-      - '.github/workflows/real-calibration.yml'
 
 jobs:
   calibrate-real-data:
@@ -44,7 +38,7 @@ jobs:
           python tools/build_news_features.py \
             data/tgju_usd_free_market_live.csv \
             data/tgju_usd_free_market_enriched.csv \
-            --sleep 0.5
+            --sleep 1.5
 
       - name: Validate enriched training data
         working-directory: tools
