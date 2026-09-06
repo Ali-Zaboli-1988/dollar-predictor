@@ -1,0 +1,24 @@
+name: Data Quality
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  validate-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run all Python regression tests
+        run: python -m unittest discover -s tools -p 'test_*.py' -v
+
+      - name: Validate committed TGJU dataset
+        run: python tools/validate_price_history.py data/tgju_usd_free_market.csv --minimum-rows 20 --max-daily-change-pct 25
