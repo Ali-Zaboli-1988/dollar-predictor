@@ -1,13 +1,5 @@
 #!/usr/bin/env python3
-"""Fetch historical USD/IRR closes from TGJU's table-data endpoint.
-
-The endpoint is used by the TGJU history table and is not treated as a stable,
-official public API contract. The script fails loudly on schema changes so a
-calibration job cannot silently train on malformed data.
-
-Current TGJU row schema:
-  0=open, 1=low, 2=high, 3=close, 4=change, 5=change%, 6=date, 7=jdate
-"""
+"""Fetch historical USD/IRR closes from TGJU's table-data endpoint."""
 from __future__ import annotations
 
 import argparse
@@ -15,6 +7,7 @@ import csv
 import datetime as dt
 import json
 import math
+import time
 from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -22,31 +15,46 @@ from urllib.request import Request, urlopen
 BASE_URL = "https://api.tgju.org/v1/market/indicator/summary-table-data/{slug}"
 SLUG = "price_dollar_rl"
 HEADERS = {
-    "User-Agent": "dollar-predictor/1.0",
+    "User-Agent": "Mozilla/5.0",
     "Accept": "application/json, text/javascript, */*; q=0.01",
-    "Referer": "https://www.tgju.org/",
+    "Accept-Language": "en-US,en;q=0.5",
     "Origin": "https://www.tgju.org",
+    "Referer": "https://www.tgju.org/",
 }
 
 
-def build_params(length: int) -> dict[str, str]:
-    return {
-        "lang": "fa",
-        "draw": "2",
-        "start": "0",
-        "length": str(length),
-        "search": "",
-        "order_col": "",
-        "order_dir": "asc",
-        "from": "",
-        "to": "",
-        "convert_to_ad": "1",
-    }
+def build_params(length: int) -> list[tuple[str, str]]:
+    if length < 1:
+        raise ValueError("length must be positive")
+    params: list[tuple[str, str]] = [("lang", "fa"), ("order_dir", "asc"), ("draw", "2")]
+    for i in range(9):
+        params.extend(
+            [
+                (f"columns[{i}][data]", str(i)),
+                (f"columns[{i}][name]", ""),
+                (f"columns[{i}][searchable]", "true"),
+                (f"columns[{i}][orderable]", "true"),
+                (f"columns[{i}][search][value]", ""),
+                (f"columns[{i}][search][regex]", "false"),
+            ]
+        )
+    params.extend(
+        [
+            ("start", "0"),
+            ("length", str(length)),
+            ("search", ""),
+            ("order_col", ""),
+            ("order_dir", ""),
+            ("from", ""),
+            ("to", ""),
+            ("convert_to_ad", "1"),
+            ("_", str(int(time.time() * 1000))),
+        ]
+    )
+    return params
 
 
 def fetch_raw(length: int, timeout: int = 30) -> dict:
-    if length < 1:
-        raise ValueError("length must be positive")
     url = BASE_URL.format(slug=SLUG) + "?" + urlencode(build_params(length))
     request = Request(url, headers=HEADERS)
     with urlopen(request, timeout=timeout) as response:
@@ -59,10 +67,9 @@ def fetch_raw(length: int, timeout: int = 30) -> dict:
 def clean_number(value: object) -> float | None:
     if value is None:
         return None
-    text = str(value).strip()
+    text = str(value).strip().replace(",", "").replace("٬", "")
     if not text or text in {"-", "—"}:
         return None
-    text = text.replace(",", "").replace("٬", "")
     try:
         number = float(text)
     except ValueError:
@@ -80,7 +87,7 @@ def parse_gregorian(value: object) -> str | None:
         try:
             return dt.datetime.strptime(text, fmt).date().isoformat()
         except ValueError:
-            pass
+            continue
     return None
 
 
@@ -119,7 +126,7 @@ def main() -> int:
 
     rows = extract_rows(fetch_raw(args.length, args.timeout))
     write_csv(rows, args.output)
-    print(f"source=TGJU")
+    print("source=TGJU")
     print(f"rows={len(rows)}")
     print(f"first_date={rows[0]['date']}")
     print(f"last_date={rows[-1]['date']}")
