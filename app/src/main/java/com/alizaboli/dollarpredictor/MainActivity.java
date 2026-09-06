@@ -289,13 +289,16 @@ public class MainActivity extends Activity {
 
         HistoryStats hs = calculateHistory(history);
         BacktestStats bt = backtestTrend(history);
+        MarketRegime regime = MarketRegime.detect(history);
         int trendScore = hs.trendScore;
         int volatilityScore = hs.volatilityScore;
-        int weighted = war + sanctions + oil + diplomacy + currency + economy + trendScore + volatilityScore + bt.validationScore;
+        int regimeScore = regimeSignalAdjustment(regime, hs.trendPct);
+        int weighted = war + sanctions + oil + diplomacy + currency + economy + trendScore + volatilityScore + bt.validationScore + regimeScore;
 
         int confidence = 45 + Math.min(36, Math.abs(weighted) * 3 + Math.min(14, totalEvidence * 2));
         if (history.size() >= 5) confidence += 5;
         if (bt.samples >= 8) confidence += Math.min(7, bt.accuracy >= 60 ? 7 : bt.accuracy >= 52 ? 4 : 1);
+        confidence += regimeConfidenceAdjustment(regime);
         if (totalEvidence == 0 && history.size() < 5) confidence = 25;
         confidence = cap(confidence, 20, 93);
 
@@ -309,12 +312,14 @@ public class MainActivity extends Activity {
         double move24 = weighted >= 8 ? Math.max(0.032, historyMove) : weighted <= -8 ? Math.max(0.024, historyMove * 0.9) : Math.max(0.016, historyMove * 0.75);
         if (weighted >= 14) move24 = Math.max(move24, 0.050);
         if (weighted <= -14) move24 = Math.max(move24, 0.040);
+        move24 *= regimeRangeMultiplier(regime);
+        move24 = Math.min(0.12, move24);
 
         long low24 = Math.round(base * (weighted >= 0 ? 1.0 - move24 * 0.55 : 1.0 - move24));
         long high24 = Math.round(base * (weighted >= 0 ? 1.0 + move24 : 1.0 + move24 * 0.55));
 
-        double threeDayMove = Math.min(0.11, move24 * 1.75);
-        double sevenDayMove = Math.min(0.20, move24 * 2.7);
+        double threeDayMove = Math.min(0.20, move24 * 1.75);
+        double sevenDayMove = Math.min(0.32, move24 * 2.7);
         long threeLow = Math.round(base * (weighted >= 0 ? 1.0 - threeDayMove * 0.45 : 1.0 - threeDayMove));
         long threeHigh = Math.round(base * (weighted >= 0 ? 1.0 + threeDayMove : 1.0 + threeDayMove * 0.45));
         long sevenLow = Math.round(base * (weighted >= 0 ? 1.0 - sevenDayMove * 0.40 : 1.0 - sevenDayMove));
@@ -325,11 +330,56 @@ public class MainActivity extends Activity {
         else if (weighted <= -8) explanation = "وزن عوامل کاهنده بیشتر است و روند تاریخی نیز از سناریوی اصلاحی حمایت می‌کند؛ با این حال خبرهای سیاسی می‌توانند مسیر را سریع عوض کنند.";
         else explanation = "سیگنال‌های خبری و روند تاریخی کاملاً هم‌جهت نیستند؛ بنابراین مدل نوسان و واکنش شدید به خبر جدید را محتمل‌تر می‌داند.";
 
+        if (regime.type == MarketRegime.Type.SHOCK) {
+            explanation += " وضعیت بازار در حالت شوک تشخیص داده شده؛ دامنه سناریوها عمداً بازتر و میزان اطمینان محدودتر شده است.";
+        } else if (regime.type == MarketRegime.Type.VOLATILE) {
+            explanation += " وضعیت بازار پرنوسان است؛ دامنه قیمت بازتر شده و مدل از اعتماد بیش از حد به یک جهت پرهیز می‌کند.";
+        } else if (regime.type == MarketRegime.Type.TRENDING) {
+            explanation += " بازار رونددار تشخیص داده شده و مؤلفه روند در جهت غالب بازار وزن بیشتری گرفته است.";
+        }
+
         if (evidence.length() == 0) evidence.append("• خبر مرتبط کافی برای تحلیل وزن‌دار دریافت نشد.\n");
 
         return new Prediction(signal, confidence, low24, high24, threeLow, threeHigh, sevenLow, sevenHigh,
                 war, sanctions, oil, diplomacy, currency, economy, trendScore, volatilityScore, bt.validationScore,
-                weighted, hs.trendPct, hs.volatilityPct, bt.samples, bt.hits, bt.accuracy, explanation, evidence.toString(), history.size());
+                regimeScore, weighted, hs.trendPct, hs.volatilityPct, bt.samples, bt.hits, bt.accuracy,
+                regime.type, regime.volatilityPct, regime.shortTrendPct, regime.longTrendPct,
+                explanation, evidence.toString(), history.size());
+    }
+
+    private int regimeSignalAdjustment(MarketRegime regime, double trendPct) {
+        if (regime == null) return 0;
+        int direction = trendPct > 0.5 ? 1 : trendPct < -0.5 ? -1 : 0;
+        switch (regime.type) {
+            case SHOCK:
+                return direction * 3;
+            case VOLATILE:
+                return direction;
+            case TRENDING:
+                return direction * 2;
+            default:
+                return 0;
+        }
+    }
+
+    private int regimeConfidenceAdjustment(MarketRegime regime) {
+        if (regime == null) return 0;
+        switch (regime.type) {
+            case SHOCK: return -7;
+            case VOLATILE: return -4;
+            case TRENDING: return 1;
+            default: return 0;
+        }
+    }
+
+    private double regimeRangeMultiplier(MarketRegime regime) {
+        if (regime == null) return 1.0;
+        switch (regime.type) {
+            case SHOCK: return 1.75;
+            case VOLATILE: return 1.35;
+            case TRENDING: return 1.10;
+            default: return 1.0;
+        }
     }
 
     private HistoryStats calculateHistory(ArrayList<Long> history) {
@@ -370,8 +420,6 @@ public class MainActivity extends Activity {
         int hits = 0;
         int lookback = Math.min(5, history.size() - 2);
 
-        // Data is newest-first. For each historical point i, use only i..i+lookback
-        // (current + older observations) to predict the next observation at i-1.
         for (int i = history.size() - 2; i >= lookback; i--) {
             long current = history.get(i);
             long oldest = history.get(i + lookback);
@@ -428,6 +476,7 @@ public class MainActivity extends Activity {
                 "روند تاریخی: " + signed(p.trendScore) + "\n" +
                 "نوسان تاریخی: " + signed(p.volatilityScore) + "\n" +
                 "اعتبارسنجی روند: " + signed(p.validationScore) + "\n" +
+                "رژیم بازار: " + signed(p.regimeScore) + "\n" +
                 "امتیاز نهایی: " + signed(p.weighted));
 
         historyView.setText(
@@ -435,6 +484,10 @@ public class MainActivity extends Activity {
                 "تعداد داده‌های روزانه دریافت‌شده: " + p.historyCount + "\n" +
                 "روند " + Math.min(10, Math.max(1, p.historyCount - 1)) + " روز اخیر: " + signedPercent(p.trendPct) + "\n" +
                 "نوسان روزانه محاسبه‌شده: " + formatPercent(p.volatilityPct) + "\n" +
+                "وضعیت بازار: " + p.regimeLabel + "\n" +
+                "نوسان رژیم: " + formatPercent(p.regimeVolatilityPct) + "\n" +
+                "روند کوتاه‌مدت رژیم: " + signedPercent(p.regimeShortTrendPct) + "\n" +
+                "روند بلندمدت رژیم: " + signedPercent(p.regimeLongTrendPct) + "\n" +
                 "اثر روند بر مدل: " + signed(p.trendScore));
 
         validationView.setText(
@@ -452,7 +505,8 @@ public class MainActivity extends Activity {
                 "۷ روز: " + format(p.sevenLow) + " تا " + format(p.sevenHigh) + "\n\n" +
                 "سناریوی پایه: ادامه وضعیت فعلی با نوسان\n" +
                 "سناریوی مثبت: کاهش تنش/مذاکره یا افزایش عرضه ارز\n" +
-                "سناریوی بحرانی: تشدید جنگ/تحریم/اختلال صادرات نفت");
+                "سناریوی بحرانی: تشدید جنگ/تحریم/اختلال صادرات نفت\n" +
+                "وضعیت رژیم بازار: " + p.regimeLabel);
 
         explanationView.setText("تحلیل مدل\n" + p.explanation + "\n\nاخبار واردشده به مدل:\n" + p.evidence);
 
@@ -516,17 +570,19 @@ public class MainActivity extends Activity {
     }
 
     private static class Prediction {
-        final String signal, explanation, evidence;
-        final int confidence, war, sanctions, oil, diplomacy, currency, economy, trendScore, volatilityScore, validationScore, weighted, historyCount;
+        final String signal, explanation, evidence, regimeLabel;
+        final int confidence, war, sanctions, oil, diplomacy, currency, economy, trendScore, volatilityScore, validationScore, regimeScore, weighted, historyCount;
         final int backtestSamples, backtestHits;
         final long low24, high24, threeLow, threeHigh, sevenLow, sevenHigh;
-        final double trendPct, volatilityPct, backtestAccuracy;
+        final double trendPct, volatilityPct, backtestAccuracy, regimeVolatilityPct, regimeShortTrendPct, regimeLongTrendPct;
 
         Prediction(String signal, int confidence, long low24, long high24, long threeLow, long threeHigh,
                    long sevenLow, long sevenHigh, int war, int sanctions, int oil, int diplomacy,
                    int currency, int economy, int trendScore, int volatilityScore, int validationScore,
-                   int weighted, double trendPct, double volatilityPct, int backtestSamples,
-                   int backtestHits, double backtestAccuracy, String explanation, String evidence, int historyCount) {
+                   int regimeScore, int weighted, double trendPct, double volatilityPct, int backtestSamples,
+                   int backtestHits, double backtestAccuracy, MarketRegime.Type regimeType,
+                   double regimeVolatilityPct, double regimeShortTrendPct, double regimeLongTrendPct,
+                   String explanation, String evidence, int historyCount) {
             this.signal = signal;
             this.confidence = confidence;
             this.low24 = low24;
@@ -544,15 +600,29 @@ public class MainActivity extends Activity {
             this.trendScore = trendScore;
             this.volatilityScore = volatilityScore;
             this.validationScore = validationScore;
+            this.regimeScore = regimeScore;
             this.weighted = weighted;
             this.trendPct = trendPct;
             this.volatilityPct = volatilityPct;
             this.backtestSamples = backtestSamples;
             this.backtestHits = backtestHits;
             this.backtestAccuracy = backtestAccuracy;
+            this.regimeLabel = regimeType == null ? "نامشخص" : regimeLabel(regimeType);
+            this.regimeVolatilityPct = regimeVolatilityPct;
+            this.regimeShortTrendPct = regimeShortTrendPct;
+            this.regimeLongTrendPct = regimeLongTrendPct;
             this.explanation = explanation;
             this.evidence = evidence;
             this.historyCount = historyCount;
+        }
+
+        private static String regimeLabel(MarketRegime.Type type) {
+            switch (type) {
+                case SHOCK: return "شوک / بحران قیمتی";
+                case VOLATILE: return "پرنوسان";
+                case TRENDING: return "رونددار";
+                default: return "نسبتاً آرام";
+            }
         }
     }
 }
