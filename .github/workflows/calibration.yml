@@ -31,7 +31,23 @@ jobs:
               rows.append(f'{price:.6f},{factor},0,0,0,0,0')
               price *= 1.006 if factor > 0 else 0.994
           rows.append(f'{price:.6f},0,0,0,0,0,0')
-          Path('/tmp/calibration.csv').write_text('\\n'.join(rows) + '\\n', encoding='utf-8')
+          Path('/tmp/calibration.csv').write_text('\n'.join(rows) + '\n', encoding='utf-8')
+          PY
+
+      - name: Validate calibration fixture schema
+        run: |
+          python - <<'PY'
+          import csv
+          required = {'close', 'war', 'sanctions', 'oil', 'diplomacy', 'currency', 'economy'}
+          with open('/tmp/calibration.csv', newline='', encoding='utf-8') as f:
+              reader = csv.DictReader(f)
+              missing = required - set(reader.fieldnames or [])
+              if missing:
+                  raise SystemExit(f'Missing CSV columns: {sorted(missing)}')
+              rows = list(reader)
+          if len(rows) != 41:
+              raise SystemExit(f'Unexpected fixture row count: {len(rows)}')
+          print(f'Validated calibration fixture: {len(rows)} rows; columns OK')
           PY
 
       - name: Run walk-forward calibration
