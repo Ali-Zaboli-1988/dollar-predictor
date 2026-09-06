@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
 
@@ -12,7 +13,16 @@ from pathlib import Path
 MAX_DAILY_MOVE_PCT = 25.0
 
 
-def load_rows(path: Path) -> list[tuple[date, int]]:
+@dataclass(frozen=True)
+class ValidationResult:
+    rows: int
+    first_date: date
+    last_date: date
+    largest_abs_move_pct: float
+
+
+def load_rows(path: str | Path) -> list[tuple[date, int]]:
+    path = Path(path)
     with path.open("r", encoding="utf-8", newline="") as handle:
         reader = csv.DictReader(handle)
         if reader.fieldnames != ["date", "close"]:
@@ -31,7 +41,16 @@ def load_rows(path: Path) -> list[tuple[date, int]]:
     return rows
 
 
-def validate(path: Path, minimum_rows: int) -> tuple[int, date, date, float]:
+def validate(
+    path: str | Path,
+    minimum_rows: int,
+    max_daily_change_pct: float = MAX_DAILY_MOVE_PCT,
+) -> ValidationResult:
+    if minimum_rows < 1:
+        raise ValueError("minimum_rows must be positive")
+    if max_daily_change_pct <= 0:
+        raise ValueError("max_daily_change_pct must be positive")
+
     rows = load_rows(path)
     if len(rows) < minimum_rows:
         raise ValueError(f"only {len(rows)} rows; minimum is {minimum_rows}")
@@ -46,25 +65,35 @@ def validate(path: Path, minimum_rows: int) -> tuple[int, date, date, float]:
     for (_, previous), (_, current) in zip(rows, rows[1:]):
         move_pct = abs((current - previous) / previous) * 100.0
         largest_move = max(largest_move, move_pct)
-        if move_pct > MAX_DAILY_MOVE_PCT:
+        if move_pct > max_daily_change_pct:
             raise ValueError(
-                f"implausible daily move {move_pct:.2f}% exceeds {MAX_DAILY_MOVE_PCT:.2f}%"
+                f"implausible daily move {move_pct:.2f}% exceeds {max_daily_change_pct:.2f}%"
             )
 
-    return len(rows), dates[0], dates[-1], largest_move
+    return ValidationResult(
+        rows=len(rows),
+        first_date=dates[0],
+        last_date=dates[-1],
+        largest_abs_move_pct=largest_move,
+    )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("path", type=Path)
     parser.add_argument("--minimum-rows", type=int, default=60)
+    parser.add_argument("--max-daily-change-pct", type=float, default=MAX_DAILY_MOVE_PCT)
     args = parser.parse_args()
 
-    count, first_day, last_day, largest_move = validate(args.path, args.minimum_rows)
-    print(f"rows={count}")
-    print(f"first_date={first_day.isoformat()}")
-    print(f"last_date={last_day.isoformat()}")
-    print(f"largest_abs_move_pct={largest_move:.4f}")
+    result = validate(
+        args.path,
+        args.minimum_rows,
+        args.max_daily_change_pct,
+    )
+    print(f"rows={result.rows}")
+    print(f"first_date={result.first_date.isoformat()}")
+    print(f"last_date={result.last_date.isoformat()}")
+    print(f"largest_abs_move_pct={result.largest_abs_move_pct:.4f}")
     return 0
 
 
