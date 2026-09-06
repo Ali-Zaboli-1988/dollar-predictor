@@ -31,3 +31,6 @@ jobs:
       - name: Run news feature tests
         working-directory: tools
         run: python test_news_features.py
+      - name: Run training data validation tests
+        working-directory: tools
+        run: python test_training_data.py
