@@ -1,0 +1,46 @@
+name: Real Price Regime Backtest
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'tools/fetch_tgju_history.py'
+      - 'tools/backtest_price_regime.py'
+      - '.github/workflows/price-backtest.yml'
+
+jobs:
+  backtest-price-regime:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run price/regime backtest unit smoke
+        working-directory: tools
+        run: python -m py_compile fetch_tgju_history.py backtest_price_regime.py
+
+      - name: Fetch 75 real TGJU observations
+        run: |
+          python tools/fetch_tgju_history.py \
+            data/tgju_usd_free_market_price_backtest.csv \
+            --length 75
+
+      - name: Run walk-forward price/regime backtest
+        run: |
+          python tools/backtest_price_regime.py \
+            data/tgju_usd_free_market_price_backtest.csv \
+            --train-size 30 \
+            --test-size 7 \
+            --min-move 0.003
+
+      - name: Upload real price backtest data
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-price-backtest-data
+          path: data/tgju_usd_free_market_price_backtest.csv
