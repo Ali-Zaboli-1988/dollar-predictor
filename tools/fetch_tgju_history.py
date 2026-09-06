@@ -4,6 +4,9 @@
 The endpoint is used by the TGJU history table and is not treated as a stable,
 official public API contract. The script fails loudly on schema changes so a
 calibration job cannot silently train on malformed data.
+
+Current TGJU row schema:
+  0=open, 1=low, 2=high, 3=close, 4=change, 5=change%, 6=date, 7=jdate
 """
 from __future__ import annotations
 
@@ -29,13 +32,12 @@ HEADERS = {
 def build_params(length: int) -> dict[str, str]:
     return {
         "lang": "fa",
-        "order_dir": "asc",
         "draw": "2",
         "start": "0",
         "length": str(length),
         "search": "",
         "order_col": "",
-        "order_dir": "",
+        "order_dir": "asc",
         "from": "",
         "to": "",
         "convert_to_ad": "1",
@@ -85,10 +87,10 @@ def parse_gregorian(value: object) -> str | None:
 def extract_rows(payload: dict) -> list[dict[str, str]]:
     output: list[dict[str, str]] = []
     for raw in payload["data"]:
-        if not isinstance(raw, (list, tuple)) or len(raw) < 8:
+        if not isinstance(raw, (list, tuple)) or len(raw) < 7:
             continue
-        close = clean_number(raw[4])
-        day = parse_gregorian(raw[7])
+        close = clean_number(raw[3])
+        day = parse_gregorian(raw[6])
         if close is None or day is None:
             continue
         output.append({"date": day, "close": f"{close:g}"})
