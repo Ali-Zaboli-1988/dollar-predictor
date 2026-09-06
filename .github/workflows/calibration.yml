@@ -28,9 +28,10 @@ jobs:
           price = 100.0
           for i in range(40):
               factor = 1 if i % 2 == 0 else -1
-              price *= 1.006 if factor > 0 else 0.994
               rows.append(f'{price:.6f},{factor},0,0,0,0,0')
-          Path('/tmp/calibration.csv').write_text('\n'.join(rows) + '\n', encoding='utf-8')
+              price *= 1.006 if factor > 0 else 0.994
+          rows.append(f'{price:.6f},0,0,0,0,0,0')
+          Path('/tmp/calibration.csv').write_text('\\n'.join(rows) + '\\n', encoding='utf-8')
           PY
 
       - name: Run walk-forward calibration
