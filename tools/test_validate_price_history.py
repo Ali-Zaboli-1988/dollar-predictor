@@ -14,15 +14,22 @@ class ValidatePriceHistoryTest(unittest.TestCase):
         tmp = tempfile.NamedTemporaryFile("w", suffix=".csv", delete=False, encoding="utf-8")
         with tmp:
             tmp.write(text)
-        return Path(tmp.name)
+        path = Path(tmp.name)
+        self.addCleanup(path.unlink, missing_ok=True)
+        return path
 
     def test_valid_history(self) -> None:
-        path = self.write("date,close\n2026-09-01,214000\n2026-09-02,219900\n2026-09-03,221060\n")
-        count, first_day, last_day, largest = validate(path, 3)
-        self.assertEqual(count, 3)
-        self.assertEqual(first_day.isoformat(), "2026-09-01")
-        self.assertEqual(last_day.isoformat(), "2026-09-03")
-        self.assertGreater(largest, 0.0)
+        path = self.write(
+            "date,close\n"
+            "2026-09-01,214000\n"
+            "2026-09-02,219900\n"
+            "2026-09-03,221060\n"
+        )
+        result = validate(path, 3)
+        self.assertEqual(result.rows, 3)
+        self.assertEqual(result.first_date.isoformat(), "2026-09-01")
+        self.assertEqual(result.last_date.isoformat(), "2026-09-03")
+        self.assertGreater(result.largest_abs_move_pct, 0.0)
 
     def test_duplicate_dates_rejected(self) -> None:
         path = self.write("date,close\n2026-09-01,214000\n2026-09-01,215000\n")
