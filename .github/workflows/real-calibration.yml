@@ -5,11 +5,8 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'data/tgju_usd_free_market.csv'
-      - 'tools/build_news_features.py'
-      - 'tools/fetch_tgju_history.py'
-      - 'tools/calibrate_weights.py'
-      - 'tools/validate_training_data.py'
+      - 'data/**'
+      - 'tools/**'
       - '.github/workflows/real-calibration.yml'
 
 jobs:
@@ -31,6 +28,10 @@ jobs:
       - name: Run TGJU fetcher tests
         working-directory: tools
         run: python test_fetch_tgju_history.py
+
+      - name: Run news feature tests
+        working-directory: tools
+        run: python test_news_features.py
 
       - name: Fetch recent historical USD/IRR closes from TGJU
         run: |
