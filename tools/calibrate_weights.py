@@ -104,12 +104,7 @@ def evaluate_test_block(
     threshold: float,
     min_move: float,
 ) -> Metrics:
-    """Evaluate only predictions whose decision point lies in [start, end).
-
-    The prediction at index i uses only row i factor values and predicts row i+1.
-    The test block therefore includes the boundary decision at `start` and ends
-    before `end`. No row after the test block is used for model selection.
-    """
+    """Evaluate only predictions whose decision point lies in [start, end)."""
     if start < 0 or end <= start or end > len(rows) - 1:
         return Metrics(0, 0, 0.0, 0.0)
 
@@ -142,12 +137,7 @@ def select_best_weights(
         if metrics.samples < 8:
             continue
 
-        # Prefer directional accuracy, then coverage, then simpler weights.
-        key = (
-            metrics.accuracy,
-            metrics.coverage,
-            -sum(abs(w) for w in weights),
-        )
+        key = (metrics.accuracy, metrics.coverage, -sum(abs(w) for w in weights))
         if best_key is None or key > best_key:
             best_key = key
             best_weights = weights
@@ -172,23 +162,13 @@ def walk_forward_calibration(
     start = train_size
     while start < len(rows) - 1:
         test_end = min(start + test_size, len(rows) - 1)
-        training = rows[:start]
-        best_weights = select_best_weights(training, candidates, threshold, min_move)
-
+        best_weights = select_best_weights(rows[:start], candidates, threshold, min_move)
         if best_weights is not None:
-            test_metrics = evaluate_test_block(
-                rows,
-                start,
-                test_end,
-                best_weights,
-                threshold,
-                min_move,
-            )
+            test_metrics = evaluate_test_block(rows, start, test_end, best_weights, threshold, min_move)
             if test_metrics.samples:
                 out_of_sample_scores[best_weights].append(
                     (test_metrics.accuracy, test_metrics.coverage, test_metrics.samples)
                 )
-
         start += test_size
 
     ranked = []
@@ -196,26 +176,46 @@ def walk_forward_calibration(
         if not blocks:
             continue
         total_samples = sum(item[2] for item in blocks)
-        weighted_accuracy = (
-            sum(item[0] * item[2] for item in blocks) / total_samples
-            if total_samples
-            else 0.0
-        )
+        weighted_accuracy = sum(item[0] * item[2] for item in blocks) / total_samples
         avg_coverage = sum(item[1] for item in blocks) / len(blocks)
-        ranked.append(
-            (
-                weighted_accuracy,
-                avg_coverage,
-                -sum(abs(w) for w in weights),
-                weights,
-            )
-        )
+        ranked.append((weighted_accuracy, avg_coverage, -sum(abs(w) for w in weights), weights))
 
     if not ranked:
         return tuple(1 for _ in FACTORS)
 
     ranked.sort(reverse=True)
     return ranked[0][3]
+
+
+def walk_forward_oos_metrics(
+    rows: list[Row],
+    candidate_values: tuple[int, ...],
+    train_size: int,
+    test_size: int,
+    threshold: float,
+    min_move: float,
+) -> Metrics:
+    """Measure the complete calibration procedure only on unseen test blocks."""
+    if len(rows) <= train_size + test_size:
+        raise ValueError("Not enough observations for walk-forward evaluation")
+
+    candidates = list(itertools.product(candidate_values, repeat=len(FACTORS)))
+    total_opportunities = total_samples = total_hits = 0
+
+    start = train_size
+    while start < len(rows) - 1:
+        test_end = min(start + test_size, len(rows) - 1)
+        best_weights = select_best_weights(rows[:start], candidates, threshold, min_move)
+        if best_weights is not None:
+            metrics = evaluate_test_block(rows, start, test_end, best_weights, threshold, min_move)
+            total_samples += metrics.samples
+            total_hits += metrics.hits
+        total_opportunities += test_end - start
+        start += test_size
+
+    accuracy = 100.0 * total_hits / total_samples if total_samples else 0.0
+    coverage = 100.0 * total_samples / total_opportunities if total_opportunities else 0.0
+    return Metrics(total_samples, total_hits, accuracy, coverage)
 
 
 def main() -> int:
@@ -236,14 +236,8 @@ def main() -> int:
 
     rows = load_rows(args.csv)
     values = tuple(range(args.min_weight, args.max_weight + 1))
-    weights = walk_forward_calibration(
-        rows,
-        values,
-        args.train_size,
-        args.test_size,
-        args.threshold,
-        args.min_move,
-    )
+    weights = walk_forward_calibration(rows, values, args.train_size, args.test_size, args.threshold, args.min_move)
+    oos = walk_forward_oos_metrics(rows, values, args.train_size, args.test_size, args.threshold, args.min_move)
 
     baseline = tuple(1 for _ in FACTORS)
     chosen_metrics = evaluate(rows, weights, args.threshold, args.min_move)
@@ -251,11 +245,14 @@ def main() -> int:
 
     print("factors=" + ",".join(FACTORS))
     print("selected_weights=" + ",".join(str(v) for v in weights))
-    print(f"selected_accuracy={chosen_metrics.accuracy:.2f}%")
-    print(f"selected_coverage={chosen_metrics.coverage:.2f}%")
+    print(f"walk_forward_oos_samples={oos.samples}")
+    print(f"walk_forward_oos_accuracy={oos.accuracy:.2f}%")
+    print(f"walk_forward_oos_coverage={oos.coverage:.2f}%")
+    print(f"descriptive_selected_accuracy={chosen_metrics.accuracy:.2f}%")
+    print(f"descriptive_selected_coverage={chosen_metrics.coverage:.2f}%")
     print(f"baseline_accuracy={baseline_metrics.accuracy:.2f}%")
     print(f"baseline_coverage={baseline_metrics.coverage:.2f}%")
-    print("note=Final reported metrics are descriptive; weights are selected with strict walk-forward out-of-sample blocks.")
+    print("note=Only walk-forward OOS metrics should be used as the calibration-performance figure; descriptive metrics use the full dataset.")
     return 0
 
 
