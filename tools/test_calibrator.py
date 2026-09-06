@@ -1,8 +1,8 @@
-from pathlib import Path
 import tempfile
 import unittest
+from pathlib import Path
 
-from calibrate_weights import FACTORS, evaluate, load_rows
+from calibrate_weights import FACTORS, evaluate, load_rows, walk_forward_oos_metrics
 
 
 class CalibratorTests(unittest.TestCase):
@@ -42,6 +42,27 @@ class CalibratorTests(unittest.TestCase):
         metrics = evaluate(rows, (1, 1, 1, 1, 1, 1), threshold=1.0, min_move=0.003)
         self.assertEqual(metrics.samples, 0)
         self.assertEqual(metrics.coverage, 0.0)
+
+    def test_walk_forward_oos_reports_only_unseen_blocks(self):
+        header = "close," + ",".join(FACTORS) + "\n"
+        lines = []
+        for i in range(40):
+            close = 100 + i
+            factors = [1, 0, 0, 0, 0, 0]
+            lines.append(str(close) + "," + ",".join(map(str, factors)) + "\n")
+        path = self._write_csv(header + "".join(lines))
+        rows = load_rows(path)
+        metrics = walk_forward_oos_metrics(
+            rows,
+            (0, 1),
+            train_size=20,
+            test_size=5,
+            threshold=0.5,
+            min_move=0.003,
+        )
+        self.assertGreater(metrics.samples, 0)
+        self.assertAlmostEqual(metrics.accuracy, 100.0)
+        self.assertLessEqual(metrics.samples, len(rows) - 21)
 
 
 if __name__ == "__main__":
