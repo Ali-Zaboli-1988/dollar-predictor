@@ -43,7 +43,7 @@ class NewsTimelineFeatureTests(unittest.TestCase):
     @patch("build_news_features_timeline.fetch_timeline")
     def test_build_uses_one_timeline_per_factor_plus_intervention(self, fetch_mock):
         def fake(query, start_date, end_date):
-            if "intervention" in query or "inject" in query or "reserves" in query:
+            if query == builder.intervention_query():
                 return {"2026-09-01": 3}
             return {"2026-09-01": 10}
 
