@@ -27,6 +27,10 @@ jobs:
         working-directory: tools
         run: python test_news_features.py
 
+      - name: Run GDELT timeline feature tests
+        working-directory: tools
+        run: python test_news_features_timeline.py
+
       - name: Run price history validation tests
         run: python -m unittest tools/test_price_history_validation.py -v
 
@@ -43,9 +47,9 @@ jobs:
             --minimum-rows 60 \
             --max-daily-change-pct 25
 
-      - name: Build historical news features from GDELT
+      - name: Build historical news features from GDELT timeline counts
         run: |
-          python tools/build_news_features.py \
+          python tools/build_news_features_timeline.py \
             data/tgju_usd_free_market_live.csv \
             data/tgju_usd_free_market_enriched.csv \
             --sleep 1.5
