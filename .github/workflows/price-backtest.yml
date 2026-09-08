@@ -7,6 +7,7 @@ on:
     paths:
       - 'tools/fetch_tgju_history.py'
       - 'tools/backtest_price_regime.py'
+      - 'tools/engine_spec_backtest.py'
       - '.github/workflows/price-backtest.yml'
 
 jobs:
@@ -23,7 +24,7 @@ jobs:
 
       - name: Run price/regime backtest unit smoke
         working-directory: tools
-        run: python -m py_compile fetch_tgju_history.py backtest_price_regime.py
+        run: python -m py_compile fetch_tgju_history.py backtest_price_regime.py engine_spec_backtest.py
 
       - name: Fetch 75 real TGJU observations
         run: |
@@ -38,6 +39,12 @@ jobs:
             --train-size 30 \
             --test-size 7 \
             --min-move 0.003
+
+      - name: Run Android engine price-spec backtest
+        run: |
+          python tools/engine_spec_backtest.py \
+            data/tgju_usd_free_market_price_backtest.csv \
+            --horizon 1
 
       - name: Upload real price backtest data
         uses: actions/upload-artifact@v4
