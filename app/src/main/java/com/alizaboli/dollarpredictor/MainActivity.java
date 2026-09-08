@@ -1,9 +1,9 @@
 package com.alizaboli.dollarpredictor;
 
 import android.app.Activity;
-import android.os.Bundle;
 import android.graphics.Color;
 import android.graphics.Typeface;
+import android.os.Bundle;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
@@ -22,6 +22,7 @@ import java.net.URL;
 import java.text.NumberFormat;
 import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -31,10 +32,21 @@ import java.util.concurrent.Executors;
 
 public class MainActivity extends Activity {
     private LinearLayout root;
-    private TextView priceView, signalView, rangeView, factorsView, historyView, validationView, scenariosView, explanationView, newsView, updatedView;
+    private TextView priceView;
+    private TextView signalView;
+    private TextView rangeView;
+    private TextView factorsView;
+    private TextView historyView;
+    private TextView validationView;
+    private TextView scenariosView;
+    private TextView explanationView;
+    private TextView newsView;
+    private TextView updatedView;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
+    private final PredictionEngine predictionEngine = new PredictionEngine();
 
-    @Override public void onCreate(Bundle savedInstanceState) {
+    @Override
+    public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         buildUi();
         refresh();
@@ -63,7 +75,11 @@ public class MainActivity extends Activity {
         TextView title = text("پیش‌بینی هوشمند دلار", 27, true);
         title.setGravity(Gravity.CENTER);
         root.addView(title);
-        TextView sub = text("تحلیل بازار آزاد + روند تاریخی + جنگ + تحریم + نفت + سیاست + اخبار", 15, false);
+
+        TextView sub = text(
+                "تحلیل بازار آزاد + روند تاریخی + رژیم بازار + جنگ + تحریم + نفت + سیاست + اخبار",
+                15,
+                false);
         sub.setGravity(Gravity.CENTER);
         root.addView(sub);
 
@@ -89,7 +105,7 @@ public class MainActivity extends Activity {
         scenariosView = text("سناریوها\n—", 16, false);
         root.addView(card(scenariosView));
 
-        explanationView = text("تحلیل: —", 16, false);
+        explanationView = text("تحلیل مدل: —", 16, false);
         root.addView(card(explanationView));
 
         Button refresh = new Button(this);
@@ -104,7 +120,10 @@ public class MainActivity extends Activity {
         newsView = text("در حال دریافت اخبار...", 15, false);
         root.addView(card(newsView));
 
-        TextView disclaimer = text("توجه: این برنامه مدل احتمالی است و توصیه خرید یا فروش ارز نیست. درصد اطمینان، اطمینان مدل به جهت حرکت است و احتمال قطعی وقوع را تضمین نمی‌کند. اعتبارسنجی نمایش‌داده‌شده فقط روند تاریخی را می‌سنجد و به‌تنهایی اعتبار پیش‌بینی خبری را ثابت نمی‌کند.", 13, false);
+        TextView disclaimer = text(
+                "توجه: این برنامه یک مدل احتمالی است و توصیه خرید یا فروش ارز نیست. درصد اطمینان، اطمینان مدل به جهت حرکت است و احتمال قطعی وقوع را تضمین نمی‌کند. اعتبارسنجی نمایش‌داده‌شده فقط مؤلفه روند قیمت را می‌سنجد و به‌تنهایی اعتبار پیش‌بینی خبری را ثابت نمی‌کند.",
+                13,
+                false);
         disclaimer.setTextColor(Color.DKGRAY);
         root.addView(disclaimer);
     }
@@ -120,16 +139,19 @@ public class MainActivity extends Activity {
     private void refresh() {
         priceView.setText("قیمت دلار\nدر حال دریافت...");
         signalView.setText("سیگنال: در حال تحلیل...");
+        rangeView.setText("بازه احتمالی ۲۴ ساعت آینده: —");
         factorsView.setText("عوامل مؤثر\nدر حال محاسبه...");
         historyView.setText("روند تاریخی\nدر حال دریافت داده...");
         validationView.setText("اعتبارسنجی روند\nدر حال محاسبه...");
         scenariosView.setText("سناریوها\nدر حال محاسبه...");
+        explanationView.setText("تحلیل مدل: در حال محاسبه...");
+        newsView.setText("در حال دریافت اخبار...");
 
         executor.execute(() -> {
             long price = fetchDollarPrice();
             ArrayList<String> headlines = fetchNews();
             ArrayList<Long> history = fetchHistoricalCloses();
-            Prediction prediction = analyze(price, history, headlines);
+            PredictionResult prediction = predictionEngine.predict(history, headlines);
             runOnUiThread(() -> showResult(price, history, headlines, prediction));
         });
     }
@@ -146,7 +168,8 @@ public class MainActivity extends Activity {
                 if (raw <= 0) continue;
                 if (raw >= 500000) return raw / 10;
                 if (raw >= 10000) return raw;
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
         }
         return 0;
     }
@@ -162,7 +185,10 @@ public class MainActivity extends Activity {
             Matcher m = Pattern.compile(s, Pattern.DOTALL).matcher(normalized);
             if (m.find()) {
                 String n = m.group(1).replace(",", "").replace("،", "");
-                try { return Long.parseLong(n); } catch (Exception ignored) {}
+                try {
+                    return Long.parseLong(n);
+                } catch (Exception ignored) {
+                }
             }
         }
         return 0;
@@ -178,8 +204,10 @@ public class MainActivity extends Activity {
         for (String url : urls) {
             try {
                 String raw = get(url);
-                String normalized = normalizeDigits(raw);
-                normalized = normalized.replaceAll("<[^>]+>", " ").replaceAll("&nbsp;", " ").replaceAll("\\s+", " ");
+                String normalized = normalizeDigits(raw)
+                        .replaceAll("<[^>]+>", " ")
+                        .replaceAll("&nbsp;", " ")
+                        .replaceAll("\\s+", " ");
                 Pattern row = Pattern.compile(
                         "([0-9]{1,3}(?:,[0-9]{3}){1,2})\\s+" +
                         "([0-9]{1,3}(?:,[0-9]{3}){1,2})\\s+" +
@@ -188,26 +216,21 @@ public class MainActivity extends Activity {
                         "(?:[-0-9.,%]+)\\s+" +
                         "(?:[0-9./-]+)");
                 Matcher m = row.matcher(normalized);
-                while (m.find() && closes.size() < 30) {
+                while (m.find() && closes.size() < 75) {
                     String close = m.group(4).replace(",", "");
                     try {
                         long value = Long.parseLong(close);
                         if (value > 100000) value /= 10;
                         if (value >= 10000 && value <= 1000000) closes.add(value);
-                    } catch (Exception ignored) {}
+                    } catch (Exception ignored) {
+                    }
                 }
-                if (closes.size() >= 5) return closes;
+                if (closes.size() >= 8) return closes;
                 closes.clear();
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
         }
         return closes;
-    }
-
-    private String normalizeDigits(String value) {
-        if (value == null) return "";
-        return value
-                .replace('۰','0').replace('۱','1').replace('۲','2').replace('۳','3').replace('۴','4')
-                .replace('۵','5').replace('۶','6').replace('۷','7').replace('۸','8').replace('۹','9');
     }
 
     private ArrayList<String> fetchNews() {
@@ -217,6 +240,7 @@ public class MainActivity extends Activity {
                 "https://news.google.com/rss/search?q=Iran+dollar+OR+Iran+economy+OR+Iran+sanctions+OR+Iran+oil+OR+Iran+war+OR+Iran+ceasefire&hl=en-US&gl=US&ceid=US:en",
                 "https://news.google.com/rss/search?q=Iran+currency+OR+Iran+negotiations+OR+Strait+of+Hormuz&hl=en-US&gl=US&ceid=US:en"
         };
+
         for (String feed : feeds) {
             try {
                 String xml = get(feed);
@@ -226,9 +250,11 @@ public class MainActivity extends Activity {
                 int event;
                 boolean item = false;
                 while ((event = x.next()) != XmlPullParser.END_DOCUMENT && out.size() < 12) {
-                    if (event == XmlPullParser.START_TAG && "item".equals(x.getName())) item = true;
-                    else if (event == XmlPullParser.END_TAG && "item".equals(x.getName())) item = false;
-                    else if (item && event == XmlPullParser.START_TAG && "title".equals(x.getName())) {
+                    if (event == XmlPullParser.START_TAG && "item".equals(x.getName())) {
+                        item = true;
+                    } else if (event == XmlPullParser.END_TAG && "item".equals(x.getName())) {
+                        item = false;
+                    } else if (item && event == XmlPullParser.START_TAG && "title".equals(x.getName())) {
                         String title = x.nextText();
                         if (title != null) {
                             title = title.trim();
@@ -237,292 +263,154 @@ public class MainActivity extends Activity {
                         }
                     }
                 }
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
         }
         return out;
     }
 
-    private Prediction analyze(long price, ArrayList<Long> history, ArrayList<String> news) {
-        int war = 0, sanctions = 0, oil = 0, diplomacy = 0, currency = 0, economy = 0;
-        int totalEvidence = 0;
-        StringBuilder evidence = new StringBuilder();
-        Set<String> evidenceSeen = new HashSet<>();
+    private void showResult(long price, ArrayList<Long> history, ArrayList<String> news, PredictionResult p) {
+        long base = price > 0 ? price : (history.isEmpty() ? 0 : history.get(0));
 
-        for (String headline : news) {
-            String s = headline.toLowerCase(Locale.ROOT);
-            boolean relevant = false;
-
-            if (containsAny(s, "war", "attack", "strike", "missile", "conflict", "escalation", "military", "hormuz", "blockade", "جنگ", "حمله", "موشک", "درگیری")) {
-                war += 3; relevant = true;
-            }
-            if (containsAny(s, "sanction", "sanctions", "secondary sanctions", "treasury", "financial pressure", "تحریم", "خزانه داری")) {
-                sanctions += 3; relevant = true;
-            }
-            if (containsAny(s, "oil export", "oil exports", "crude", "oil price", "brent", "wti", "tanker", "shipping", "strait of hormuz", "نفت", "صادرات نفت", "هرمز")) {
-                oil += 2; relevant = true;
-            }
-            if (containsAny(s, "ceasefire", "talks", "negotiation", "negotiations", "agreement", "deal", "truce", "de-escalation", "peace", "آتش بس", "مذاکره", "توافق", "صلح")) {
-                diplomacy -= 4; relevant = true;
-            }
-            if (containsAny(s, "central bank", "foreign currency", "fx intervention", "currency intervention", "inject", "reserves", "rial", "dollar", "ارز", "بانک مرکزی", "ریال", "دلار")) {
-                relevant = true;
-                currency += 1;
-                if (containsAny(s, "intervention", "inject", "reserves", "enough foreign currency", "مداخله", "تزریق")) currency -= 3;
-            }
-            if (containsAny(s, "inflation", "inflationary", "imports", "trade", "economic crisis", "economy", "تورم", "واردات", "بحران اقتصادی")) {
-                economy += 2; relevant = true;
-            }
-
-            if (relevant) {
-                totalEvidence++;
-                String key = headline.toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
-                if (evidenceSeen.add(key)) evidence.append("• ").append(headline).append("\n");
-            }
+        if (base > 0) {
+            priceView.setText("قیمت تقریبی دلار\n" + format(base) + " تومان");
+        } else {
+            priceView.setText("قیمت دلار\nدریافت نشد");
         }
 
-        war = cap(war, -12, 12);
-        sanctions = cap(sanctions, -12, 12);
-        oil = cap(oil, -10, 10);
-        diplomacy = cap(diplomacy, -12, 12);
-        currency = cap(currency, -8, 8);
-        economy = cap(economy, -10, 10);
+        signalView.setText(
+                "سیگنال ۲۴ ساعته: " + directionLabel(p.direction) +
+                "\nاطمینان مدل: " + p.confidence + "%" +
+                "\nریسک: " + riskLabel(p.riskLevel) +
+                "\nرژیم بازار: " + regimeLabel(p.regime));
 
-        HistoryStats hs = calculateHistory(history);
-        BacktestStats bt = backtestTrend(history);
-        MarketRegime regime = MarketRegime.detect(history);
-        int trendScore = hs.trendScore;
-        int volatilityScore = hs.volatilityScore;
-        int regimeScore = regimeSignalAdjustment(regime, hs.trendPct);
-        int weighted = war + sanctions + oil + diplomacy + currency + economy + trendScore + volatilityScore + bt.validationScore + regimeScore;
-
-        int confidence = 45 + Math.min(36, Math.abs(weighted) * 3 + Math.min(14, totalEvidence * 2));
-        if (history.size() >= 5) confidence += 5;
-        if (bt.samples >= 8) confidence += Math.min(7, bt.accuracy >= 60 ? 7 : bt.accuracy >= 52 ? 4 : 1);
-        confidence += regimeConfidenceAdjustment(regime);
-        if (totalEvidence == 0 && history.size() < 5) confidence = 25;
-        confidence = cap(confidence, 20, 93);
-
-        String signal;
-        if (weighted >= 8) signal = "احتمال افزایش 🔴";
-        else if (weighted <= -8) signal = "احتمال کاهش 🟢";
-        else signal = "نوسانی / نامشخص 🟡";
-
-        long base = price > 0 ? price : (history.isEmpty() ? 220000 : history.get(0));
-        double historyMove = hs.volatilityPct > 0 ? Math.min(0.055, Math.max(0.012, hs.volatilityPct * 1.15 / 100.0)) : 0.018;
-        double move24 = weighted >= 8 ? Math.max(0.032, historyMove) : weighted <= -8 ? Math.max(0.024, historyMove * 0.9) : Math.max(0.016, historyMove * 0.75);
-        if (weighted >= 14) move24 = Math.max(move24, 0.050);
-        if (weighted <= -14) move24 = Math.max(move24, 0.040);
-        move24 *= regimeRangeMultiplier(regime);
-        move24 = Math.min(0.12, move24);
-
-        long low24 = Math.round(base * (weighted >= 0 ? 1.0 - move24 * 0.55 : 1.0 - move24));
-        long high24 = Math.round(base * (weighted >= 0 ? 1.0 + move24 : 1.0 + move24 * 0.55));
-
-        double threeDayMove = Math.min(0.20, move24 * 1.75);
-        double sevenDayMove = Math.min(0.32, move24 * 2.7);
-        long threeLow = Math.round(base * (weighted >= 0 ? 1.0 - threeDayMove * 0.45 : 1.0 - threeDayMove));
-        long threeHigh = Math.round(base * (weighted >= 0 ? 1.0 + threeDayMove : 1.0 + threeDayMove * 0.45));
-        long sevenLow = Math.round(base * (weighted >= 0 ? 1.0 - sevenDayMove * 0.40 : 1.0 - sevenDayMove));
-        long sevenHigh = Math.round(base * (weighted >= 0 ? 1.0 + sevenDayMove : 1.0 + sevenDayMove * 0.40));
-
-        String explanation;
-        if (weighted >= 8) explanation = "هم خبرهای پرریسک، هم روند تاریخی و هم اعتبارسنجی روند، سوگیری صعودی دارند؛ مدل احتمال تداوم فشار صعودی و نوسان بالا را بیشتر می‌داند.";
-        else if (weighted <= -8) explanation = "وزن عوامل کاهنده بیشتر است و روند تاریخی نیز از سناریوی اصلاحی حمایت می‌کند؛ با این حال خبرهای سیاسی می‌توانند مسیر را سریع عوض کنند.";
-        else explanation = "سیگنال‌های خبری و روند تاریخی کاملاً هم‌جهت نیستند؛ بنابراین مدل نوسان و واکنش شدید به خبر جدید را محتمل‌تر می‌داند.";
-
-        if (regime.type == MarketRegime.Type.SHOCK) {
-            explanation += " وضعیت بازار در حالت شوک تشخیص داده شده؛ دامنه سناریوها عمداً بازتر و میزان اطمینان محدودتر شده است.";
-        } else if (regime.type == MarketRegime.Type.VOLATILE) {
-            explanation += " وضعیت بازار پرنوسان است؛ دامنه قیمت بازتر شده و مدل از اعتماد بیش از حد به یک جهت پرهیز می‌کند.";
-        } else if (regime.type == MarketRegime.Type.TRENDING) {
-            explanation += " بازار رونددار تشخیص داده شده و مؤلفه روند در جهت غالب بازار وزن بیشتری گرفته است.";
+        double dailyMove = p.volatilityPct > 0
+                ? Math.min(0.08, Math.max(0.012, p.volatilityPct * 1.15 / 100.0))
+                : 0.018;
+        double directionBias = p.direction == PredictionResult.Direction.UP ? 0.35
+                : p.direction == PredictionResult.Direction.DOWN ? -0.35 : 0.0;
+        double lowFactor = 1.0 - dailyMove * (0.80 + Math.max(0.0, -directionBias));
+        double highFactor = 1.0 + dailyMove * (0.80 + Math.max(0.0, directionBias));
+        if (p.regime == MarketRegime.Type.SHOCK) {
+            lowFactor = 1.0 - dailyMove * 1.45;
+            highFactor = 1.0 + dailyMove * 1.45;
+        } else if (p.regime == MarketRegime.Type.VOLATILE) {
+            lowFactor = 1.0 - dailyMove * 1.15;
+            highFactor = 1.0 + dailyMove * 1.15;
+        }
+        if (base > 0) {
+            long low = Math.max(0L, Math.round(base * lowFactor));
+            long high = Math.max(low, Math.round(base * highFactor));
+            rangeView.setText("بازه احتمالی ۲۴ ساعت آینده\n" + format(low) + " تا " + format(high) + " تومان");
+        } else {
+            rangeView.setText("بازه احتمالی ۲۴ ساعت آینده\nبه علت نبود قیمت پایه محاسبه نشد");
         }
 
-        if (evidence.length() == 0) evidence.append("• خبر مرتبط کافی برای تحلیل وزن‌دار دریافت نشد.\n");
-
-        return new Prediction(signal, confidence, low24, high24, threeLow, threeHigh, sevenLow, sevenHigh,
-                war, sanctions, oil, diplomacy, currency, economy, trendScore, volatilityScore, bt.validationScore,
-                regimeScore, weighted, hs.trendPct, hs.volatilityPct, bt.samples, bt.hits, bt.accuracy,
-                regime.type, regime.volatilityPct, regime.shortTrendPct, regime.longTrendPct,
-                explanation, evidence.toString(), history.size());
-    }
-
-    private int regimeSignalAdjustment(MarketRegime regime, double trendPct) {
-        if (regime == null) return 0;
-        int direction = trendPct > 0.5 ? 1 : trendPct < -0.5 ? -1 : 0;
-        switch (regime.type) {
-            case SHOCK:
-                return direction * 3;
-            case VOLATILE:
-                return direction;
-            case TRENDING:
-                return direction * 2;
-            default:
-                return 0;
+        StringBuilder factors = new StringBuilder("عوامل واردشده به موتور پیش‌بینی\n");
+        if (p.factors.isEmpty()) {
+            factors.append("سیگنال عامل مشخصی وجود ندارد.");
+        } else {
+            for (String factor : p.factors) factors.append("• ").append(factor).append("\n");
         }
-    }
-
-    private int regimeConfidenceAdjustment(MarketRegime regime) {
-        if (regime == null) return 0;
-        switch (regime.type) {
-            case SHOCK: return -7;
-            case VOLATILE: return -4;
-            case TRENDING: return 1;
-            default: return 0;
-        }
-    }
-
-    private double regimeRangeMultiplier(MarketRegime regime) {
-        if (regime == null) return 1.0;
-        switch (regime.type) {
-            case SHOCK: return 1.75;
-            case VOLATILE: return 1.35;
-            case TRENDING: return 1.10;
-            default: return 1.0;
-        }
-    }
-
-    private HistoryStats calculateHistory(ArrayList<Long> history) {
-        if (history == null || history.size() < 2) return new HistoryStats(0, 0, 0, 0);
-        int n = history.size();
-        int lookback = Math.min(10, n - 1);
-        double recent = history.get(0);
-        double old = history.get(lookback);
-        double trendPct = old > 0 ? ((recent - old) / old) * 100.0 : 0;
-
-        int trendScore = 0;
-        if (trendPct >= 5.0) trendScore = 4;
-        else if (trendPct >= 2.0) trendScore = 2;
-        else if (trendPct >= 0.75) trendScore = 1;
-        else if (trendPct <= -5.0) trendScore = -4;
-        else if (trendPct <= -2.0) trendScore = -2;
-        else if (trendPct <= -0.75) trendScore = -1;
-
-        double sumSq = 0;
-        int returns = 0;
-        for (int i = 0; i < n - 1; i++) {
-            double a = history.get(i);
-            double b = history.get(i + 1);
-            if (b <= 0) continue;
-            double r = ((a - b) / b) * 100.0;
-            sumSq += r * r;
-            returns++;
-        }
-        double volatilityPct = returns > 0 ? Math.sqrt(sumSq / returns) : 0;
-        int volatilityScore = volatilityPct >= 3.0 ? 2 : volatilityPct >= 1.5 ? 1 : 0;
-        return new HistoryStats(trendPct, volatilityPct, trendScore, volatilityScore);
-    }
-
-    private BacktestStats backtestTrend(ArrayList<Long> history) {
-        if (history == null || history.size() < 8) return new BacktestStats(0, 0, 0.0, 0);
-
-        int samples = 0;
-        int hits = 0;
-        int lookback = Math.min(5, history.size() - 2);
-
-        for (int i = history.size() - 2; i >= lookback; i--) {
-            long current = history.get(i);
-            long oldest = history.get(i + lookback);
-            long next = history.get(i - 1);
-            if (current <= 0 || oldest <= 0 || next <= 0) continue;
-
-            double trend = ((double) current - oldest) / oldest;
-            double actual = ((double) next - current) / current;
-            int predicted = trend > 0.003 ? 1 : trend < -0.003 ? -1 : 0;
-            int direction = actual > 0 ? 1 : actual < 0 ? -1 : 0;
-            if (predicted == 0 || direction == 0) continue;
-
-            samples++;
-            if (predicted == direction) hits++;
-        }
-
-        double accuracy = samples > 0 ? (100.0 * hits / samples) : 0.0;
-        int score;
-        if (samples < 5) score = 0;
-        else if (accuracy >= 65.0) score = 3;
-        else if (accuracy >= 58.0) score = 2;
-        else if (accuracy >= 52.0) score = 1;
-        else if (accuracy <= 35.0) score = -3;
-        else if (accuracy <= 42.0) score = -2;
-        else if (accuracy <= 48.0) score = -1;
-        else score = 0;
-
-        return new BacktestStats(samples, hits, accuracy, score);
-    }
-
-    private boolean containsAny(String text, String... words) {
-        for (String word : words) if (text.contains(word)) return true;
-        return false;
-    }
-
-    private int cap(int value, int min, int max) {
-        return Math.max(min, Math.min(max, value));
-    }
-
-    private void showResult(long price, ArrayList<Long> history, ArrayList<String> news, Prediction p) {
-        long base = price > 0 ? price : (history.isEmpty() ? 220000 : history.get(0));
-        priceView.setText(price > 0 ? "قیمت تقریبی دلار\n" + format(price) + " تومان" : "قیمت دلار\nدریافت نشد");
-        signalView.setText("سیگنال ۲۴ ساعته: " + p.signal + "\nدرصد اطمینان مدل: " + p.confidence + "%");
-        rangeView.setText("بازه احتمالی ۲۴ ساعت آینده\n" + format(p.low24) + " تا " + format(p.high24) + " تومان");
-
-        factorsView.setText(
-                "عوامل مؤثر در مدل\n" +
-                "جنگ و تنش: " + signed(p.war) + "\n" +
-                "تحریم و فشار مالی: " + signed(p.sanctions) + "\n" +
-                "نفت و صادرات/حمل‌ونقل: " + signed(p.oil) + "\n" +
-                "مذاکره و کاهش تنش: " + signed(p.diplomacy) + "\n" +
-                "ارز و مداخله بانک مرکزی: " + signed(p.currency) + "\n" +
-                "اقتصاد و تورم: " + signed(p.economy) + "\n" +
-                "روند تاریخی: " + signed(p.trendScore) + "\n" +
-                "نوسان تاریخی: " + signed(p.volatilityScore) + "\n" +
-                "اعتبارسنجی روند: " + signed(p.validationScore) + "\n" +
-                "رژیم بازار: " + signed(p.regimeScore) + "\n" +
-                "امتیاز نهایی: " + signed(p.weighted));
+        factors.append("\nامتیاز ترکیبی موتور: ").append(p.score);
+        factorsView.setText(factors.toString());
 
         historyView.setText(
                 "روند تاریخی دلار\n" +
-                "تعداد داده‌های روزانه دریافت‌شده: " + p.historyCount + "\n" +
-                "روند " + Math.min(10, Math.max(1, p.historyCount - 1)) + " روز اخیر: " + signedPercent(p.trendPct) + "\n" +
-                "نوسان روزانه محاسبه‌شده: " + formatPercent(p.volatilityPct) + "\n" +
-                "وضعیت بازار: " + p.regimeLabel + "\n" +
-                "نوسان رژیم: " + formatPercent(p.regimeVolatilityPct) + "\n" +
-                "روند کوتاه‌مدت رژیم: " + signedPercent(p.regimeShortTrendPct) + "\n" +
-                "روند بلندمدت رژیم: " + signedPercent(p.regimeLongTrendPct) + "\n" +
-                "اثر روند بر مدل: " + signed(p.trendScore));
+                "تعداد رکورد: " + history.size() + "\n" +
+                "روند ۱۰ روزه تقریبی: " + signedPercent(p.trendPct) + "\n" +
+                "نوسان روزانه: " + formatPercent(p.volatilityPct) + "\n" +
+                "وضعیت بازار: " + regimeLabel(p.regime));
 
         validationView.setText(
-                "اعتبارسنجی تاریخیِ مؤلفه روند\n" +
-                "نمونه‌های قابل‌ارزیابی: " + p.backtestSamples + "\n" +
-                "پیش‌بینی‌های درست: " + p.backtestHits + "\n" +
+                "اعتبارسنجی تاریخی مؤلفه روند\n" +
+                "نمونه‌های قابل ارزیابی: " + p.backtestSamples + "\n" +
                 "دقت جهت روند: " + formatPercent(p.backtestAccuracy) + "\n" +
-                "امتیاز اعتبارسنجی وارد مدل: " + signed(p.validationScore) + "\n" +
-                "نکته: این آزمون فقط مؤلفه روند قیمت را اعتبارسنجی می‌کند؛ تاریخچه خبری گذشته در این بک‌تست وجود ندارد.");
+                "این عدد فقط برای مؤلفه روند قیمت است و اعتبار خبرها را اثبات نمی‌کند.");
 
-        scenariosView.setText(
-                "سناریوهای قیمتی بر اساس قیمت فعلی " + format(base) + " تومان\n\n" +
-                "۲۴ ساعت: " + format(p.low24) + " تا " + format(p.high24) + "\n" +
-                "۳ روز: " + format(p.threeLow) + " تا " + format(p.threeHigh) + "\n" +
-                "۷ روز: " + format(p.sevenLow) + " تا " + format(p.sevenHigh) + "\n\n" +
-                "سناریوی پایه: ادامه وضعیت فعلی با نوسان\n" +
-                "سناریوی مثبت: کاهش تنش/مذاکره یا افزایش عرضه ارز\n" +
-                "سناریوی بحرانی: تشدید جنگ/تحریم/اختلال صادرات نفت\n" +
-                "وضعیت رژیم بازار: " + p.regimeLabel);
+        long scenario24 = base > 0 ? Math.round(base * dailyMove) : 0;
+        long scenario3d = base > 0 ? Math.round(base * Math.min(0.16, dailyMove * 1.75)) : 0;
+        long scenario7d = base > 0 ? Math.round(base * Math.min(0.28, dailyMove * 2.7)) : 0;
+        if (base > 0) {
+            scenariosView.setText(
+                    "سناریوهای قیمتی\n\n" +
+                    "۲۴ ساعت: " + format(Math.max(0, base - scenario24)) + " تا " + format(base + scenario24) + "\n" +
+                    "۳ روز: " + format(Math.max(0, base - scenario3d)) + " تا " + format(base + scenario3d) + "\n" +
+                    "۷ روز: " + format(Math.max(0, base - scenario7d)) + " تا " + format(base + scenario7d) + "\n\n" +
+                    "سناریوی پایه: تداوم وضعیت فعلی\n" +
+                    "سناریوی صعودی: تشدید فشارهای تورمی/سیاسی و افزایش تقاضا\n" +
+                    "سناریوی کاهشی: کاهش تنش یا افزایش عرضه ارز");
+        } else {
+            scenariosView.setText("سناریوهای قیمتی\nقیمت پایه برای محاسبه در دسترس نیست.");
+        }
 
-        explanationView.setText("تحلیل مدل\n" + p.explanation + "\n\nاخبار واردشده به مدل:\n" + p.evidence);
+        StringBuilder explanation = new StringBuilder("تحلیل موتور\n");
+        explanation.append("جهت خروجی: ").append(directionLabel(p.direction)).append("\n");
+        explanation.append("سطح ریسک: ").append(riskLabel(p.riskLevel)).append("\n");
+        explanation.append("امتیاز ترکیبی: ").append(p.score).append("\n");
+        explanation.append("رژیم بازار: ").append(regimeLabel(p.regime)).append("\n\n");
+        if (p.factors.isEmpty()) {
+            explanation.append("موتور عامل خبری/قیمتی معناداری برای تقویت جهت پیدا نکرد.");
+        } else {
+            explanation.append("موتور چند سیگنال را با هم ترکیب کرده و در صورت تعارض، خروجی را به NEUTRAL نزدیک می‌کند.");
+        }
+        explanationView.setText(explanation.toString());
 
         StringBuilder n = new StringBuilder();
-        if (news.isEmpty()) n.append("خبر جدیدی دریافت نشد.");
-        else for (int i = 0; i < news.size(); i++) n.append(i + 1).append(". ").append(news.get(i)).append("\n\n");
+        if (news.isEmpty()) {
+            n.append("خبر جدیدی دریافت نشد.");
+        } else {
+            for (int i = 0; i < news.size(); i++) {
+                n.append(i + 1).append(". ").append(news.get(i)).append("\n\n");
+            }
+        }
         newsView.setText(n.toString());
-        updatedView.setText("آخرین بروزرسانی: همین الان | " + news.size() + " خبر | " + p.historyCount + " رکورد تاریخی");
+        updatedView.setText("آخرین بروزرسانی: همین الان | " + news.size() + " خبر | " + history.size() + " رکورد تاریخی");
     }
 
-    private String signed(int n) { return n > 0 ? "+" + n : String.valueOf(n); }
-    private String signedPercent(double n) { return (n > 0 ? "+" : "") + String.format(Locale.US, "%.2f%%", n); }
-    private String formatPercent(double n) { return String.format(Locale.US, "%.2f%%", n); }
+    private String directionLabel(PredictionResult.Direction direction) {
+        switch (direction) {
+            case UP: return "احتمال افزایش 🔴";
+            case DOWN: return "احتمال کاهش 🟢";
+            default: return "خنثی / نامشخص 🟡";
+        }
+    }
 
-    private String format(long n) {
-        return NumberFormat.getNumberInstance(Locale.US).format(n);
+    private String riskLabel(PredictionResult.RiskLevel risk) {
+        switch (risk) {
+            case HIGH: return "زیاد";
+            case MEDIUM: return "متوسط";
+            default: return "کم";
+        }
+    }
+
+    private String regimeLabel(MarketRegime.Type type) {
+        if (type == null) return "نامشخص";
+        switch (type) {
+            case SHOCK: return "شوک / بحران قیمتی";
+            case VOLATILE: return "پرنوسان";
+            case TRENDING: return "رونددار";
+            default: return "نسبتاً آرام";
+        }
+    }
+
+    private String signedPercent(double value) {
+        return (value > 0 ? "+" : "") + String.format(Locale.US, "%.2f%%", value);
+    }
+
+    private String formatPercent(double value) {
+        return String.format(Locale.US, "%.2f%%", value);
+    }
+
+    private String format(long value) {
+        return NumberFormat.getNumberInstance(Locale.US).format(value);
+    }
+
+    private String normalizeDigits(String value) {
+        if (value == null) return "";
+        return value
+                .replace('۰', '0').replace('۱', '1').replace('۲', '2').replace('۳', '3').replace('۴', '4')
+                .replace('۵', '5').replace('۶', '6').replace('۷', '7').replace('۸', '8').replace('۹', '9');
     }
 
     private String get(String url) throws Exception {
@@ -542,87 +430,9 @@ public class MainActivity extends Activity {
         return b.toString();
     }
 
-    @Override protected void onDestroy() {
+    @Override
+    protected void onDestroy() {
         super.onDestroy();
         executor.shutdownNow();
-    }
-
-    private static class HistoryStats {
-        final double trendPct, volatilityPct;
-        final int trendScore, volatilityScore;
-        HistoryStats(double trendPct, double volatilityPct, int trendScore, int volatilityScore) {
-            this.trendPct = trendPct;
-            this.volatilityPct = volatilityPct;
-            this.trendScore = trendScore;
-            this.volatilityScore = volatilityScore;
-        }
-    }
-
-    private static class BacktestStats {
-        final int samples, hits, validationScore;
-        final double accuracy;
-        BacktestStats(int samples, int hits, double accuracy, int validationScore) {
-            this.samples = samples;
-            this.hits = hits;
-            this.accuracy = accuracy;
-            this.validationScore = validationScore;
-        }
-    }
-
-    private static class Prediction {
-        final String signal, explanation, evidence, regimeLabel;
-        final int confidence, war, sanctions, oil, diplomacy, currency, economy, trendScore, volatilityScore, validationScore, regimeScore, weighted, historyCount;
-        final int backtestSamples, backtestHits;
-        final long low24, high24, threeLow, threeHigh, sevenLow, sevenHigh;
-        final double trendPct, volatilityPct, backtestAccuracy, regimeVolatilityPct, regimeShortTrendPct, regimeLongTrendPct;
-
-        Prediction(String signal, int confidence, long low24, long high24, long threeLow, long threeHigh,
-                   long sevenLow, long sevenHigh, int war, int sanctions, int oil, int diplomacy,
-                   int currency, int economy, int trendScore, int volatilityScore, int validationScore,
-                   int regimeScore, int weighted, double trendPct, double volatilityPct, int backtestSamples,
-                   int backtestHits, double backtestAccuracy, MarketRegime.Type regimeType,
-                   double regimeVolatilityPct, double regimeShortTrendPct, double regimeLongTrendPct,
-                   String explanation, String evidence, int historyCount) {
-            this.signal = signal;
-            this.confidence = confidence;
-            this.low24 = low24;
-            this.high24 = high24;
-            this.threeLow = threeLow;
-            this.threeHigh = threeHigh;
-            this.sevenLow = sevenLow;
-            this.sevenHigh = sevenHigh;
-            this.war = war;
-            this.sanctions = sanctions;
-            this.oil = oil;
-            this.diplomacy = diplomacy;
-            this.currency = currency;
-            this.economy = economy;
-            this.trendScore = trendScore;
-            this.volatilityScore = volatilityScore;
-            this.validationScore = validationScore;
-            this.regimeScore = regimeScore;
-            this.weighted = weighted;
-            this.trendPct = trendPct;
-            this.volatilityPct = volatilityPct;
-            this.backtestSamples = backtestSamples;
-            this.backtestHits = backtestHits;
-            this.backtestAccuracy = backtestAccuracy;
-            this.regimeLabel = regimeType == null ? "نامشخص" : regimeLabel(regimeType);
-            this.regimeVolatilityPct = regimeVolatilityPct;
-            this.regimeShortTrendPct = regimeShortTrendPct;
-            this.regimeLongTrendPct = regimeLongTrendPct;
-            this.explanation = explanation;
-            this.evidence = evidence;
-            this.historyCount = historyCount;
-        }
-
-        private static String regimeLabel(MarketRegime.Type type) {
-            switch (type) {
-                case SHOCK: return "شوک / بحران قیمتی";
-                case VOLATILE: return "پرنوسان";
-                case TRENDING: return "رونددار";
-                default: return "نسبتاً آرام";
-            }
-        }
     }
 }
