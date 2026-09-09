@@ -2,6 +2,9 @@ name: Real Data Calibration
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - '.github/run-real-calibration'
 
 jobs:
   calibrate-real-data:
@@ -34,17 +37,17 @@ jobs:
       - name: Run price history validation tests
         run: python -m unittest tools/test_price_history_validation.py -v
 
-      - name: Fetch recent historical USD/IRR closes from TGJU
+      - name: Fetch 365 historical USD/IRR closes from TGJU
         run: |
           python tools/fetch_tgju_history.py \
             data/tgju_usd_free_market_live.csv \
-            --length 75
+            --length 365
 
       - name: Validate fetched price history
         run: |
           python tools/validate_price_history.py \
             data/tgju_usd_free_market_live.csv \
-            --minimum-rows 60 \
+            --minimum-rows 300 \
             --max-daily-change-pct 25
 
       - name: Build historical news features from GDELT timeline counts
@@ -56,14 +59,14 @@ jobs:
 
       - name: Validate enriched training data
         working-directory: tools
-        run: python validate_training_data.py ../data/tgju_usd_free_market_enriched.csv --minimum-rows 60
+        run: python validate_training_data.py ../data/tgju_usd_free_market_enriched.csv --minimum-rows 300
 
       - name: Run strict walk-forward calibration
         run: |
           python tools/calibrate_weights.py \
             data/tgju_usd_free_market_enriched.csv \
-            --train-size 40 \
-            --test-size 7 \
+            --train-size 180 \
+            --test-size 14 \
             --threshold 1.0 \
             --min-move 0.003 \
             --min-weight 0 \
