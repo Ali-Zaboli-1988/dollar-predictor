@@ -116,14 +116,23 @@ def regime_score(rows: list[Row], i: int) -> int:
 
 
 def validation_score(rows: list[Row], i: int) -> int:
+    """Score historical directional validation using rows strictly before i.
+
+    For a prediction made at index i, every validation sample must have its
+    trend window and its next-day outcome fully contained in rows[0:i]. This
+    prevents the validation component from reading the current/future row.
+    """
     if i < 8:
         return 0
     samples = hits = 0
     lb = min(5, i - 1)
-    for j in range(i - 1, lb - 1, -1):
+
+    # Historical transition j -> j+1 must finish before i.  The trend used
+    # for that transition is measured from j-lb to j, so j starts at lb.
+    for j in range(lb, i - 1):
         current = rows[j].close
-        old = rows[j + lb].close
-        nxt = rows[j - 1].close
+        old = rows[j - lb].close
+        nxt = rows[j + 1].close
         if min(current, old, nxt) <= 0:
             continue
         move = (current - old) / old
@@ -132,6 +141,7 @@ def validation_score(rows: list[Row], i: int) -> int:
         if pred and actual:
             samples += 1
             hits += int(pred == actual)
+
     if samples < 5:
         return 0
     acc = 100 * hits / samples
