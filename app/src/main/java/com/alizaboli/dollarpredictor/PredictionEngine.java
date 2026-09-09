@@ -141,7 +141,8 @@ public final class PredictionEngine {
 
         double sumSq = 0.0;
         int returns = 0;
-        for (int i = 0; i < history.size() - 1; i++) {
+        int returnLookback = Math.min(10, history.size() - 1);
+        for (int i = 0; i < returnLookback; i++) {
             double now = history.get(i);
             double previous = history.get(i + 1);
             if (now <= 0 || previous <= 0) continue;
