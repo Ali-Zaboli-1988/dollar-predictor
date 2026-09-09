@@ -127,7 +127,7 @@ def validation_score(rows: list[Row], i: int) -> int:
     samples = hits = 0
     lb = min(5, i - 1)
 
-    # Historical transition j -> j+1 must finish before i.  The trend used
+    # Historical transition j -> j+1 must finish before i. The trend used
     # for that transition is measured from j-lb to j, so j starts at lb.
     for j in range(lb, i - 1):
         current = rows[j].close
@@ -199,12 +199,14 @@ def select_candidate(rows: list[Row], candidates: list[Candidate], end: int) -> 
     return ranked[0][3]
 
 
-def search(rows: list[Row], train_size: int, test_size: int) -> tuple[Metrics, dict[Candidate, Metrics], list[tuple[int, int, Candidate]]]:
+def search(rows: list[Row], train_size: int, test_size: int) -> tuple[Metrics, Metrics, dict[Candidate, Metrics], list[tuple[int, int, Candidate]]]:
     values = (0.5, 0.75, 1.0, 1.25, 1.5, 2.0)
     candidates = [Candidate(*x) for x in itertools.product(values, repeat=4)]
+    baseline = Candidate(1.0, 1.0, 0.0, 1.0)
     selected_metrics: dict[Candidate, Metrics] = {}
     selections: list[tuple[int, int, Candidate]] = []
     aggregate = Metrics()
+    baseline_selected_folds = Metrics()
     start = train_size
     while start < len(rows) - 1:
         end = min(start + test_size, len(rows) - 1)
@@ -218,9 +220,13 @@ def search(rows: list[Row], train_size: int, test_size: int) -> tuple[Metrics, d
             metric.samples += block.samples
             metric.hits += block.hits
             metric.opportunities += block.opportunities
+            baseline_block = evaluate(rows, start, end, baseline)
+            baseline_selected_folds.samples += baseline_block.samples
+            baseline_selected_folds.hits += baseline_block.hits
+            baseline_selected_folds.opportunities += baseline_block.opportunities
             selections.append((start, end, chosen))
         start = end
-    return aggregate, selected_metrics, selections
+    return aggregate, baseline_selected_folds, selected_metrics, selections
 
 
 def main() -> int:
@@ -231,7 +237,7 @@ def main() -> int:
     ap.add_argument("--top", type=int, default=10)
     args = ap.parse_args()
     rows = load_rows(args.csv)
-    aggregate, selected_metrics, selections = search(rows, args.train_size, args.test_size)
+    aggregate, baseline, selected_metrics, selections = search(rows, args.train_size, args.test_size)
 
     print(f"rows={len(rows)}")
     print("news_weights=excluded_no_point_in_time_news_dataset")
@@ -239,6 +245,12 @@ def main() -> int:
     print(f"walk_forward_oos_hits={aggregate.hits}")
     print(f"walk_forward_oos_accuracy={aggregate.accuracy:.2f}")
     print(f"walk_forward_oos_coverage={aggregate.coverage:.2f}")
+    print(f"same_fold_baseline_samples={baseline.samples}")
+    print(f"same_fold_baseline_hits={baseline.hits}")
+    print(f"same_fold_baseline_accuracy={baseline.accuracy:.2f}")
+    print(f"same_fold_baseline_coverage={baseline.coverage:.2f}")
+    print(f"selected_minus_baseline_accuracy={aggregate.accuracy - baseline.accuracy:+.2f}")
+    print(f"selected_minus_baseline_coverage={aggregate.coverage - baseline.coverage:+.2f}")
     print(f"folds={len(selections)}")
     print("rank,trend_weight,volatility_weight,validation_weight,regime_weight,selected_folds,oos_samples,oos_hits,oos_accuracy,oos_coverage")
     ranked = sorted(
