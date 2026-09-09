@@ -5,6 +5,7 @@ on:
   push:
     paths:
       - '.github/run-real-calibration'
+      - '.github/run-real-calibration-2'
 
 jobs:
   calibrate-real-data:
