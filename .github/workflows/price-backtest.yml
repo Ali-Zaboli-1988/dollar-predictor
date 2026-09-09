@@ -9,6 +9,7 @@ on:
       - 'tools/backtest_price_regime.py'
       - 'tools/engine_spec_backtest.py'
       - 'tools/engine_weight_search.py'
+      - 'tools/test_engine_weight_search.py'
       - '.github/workflows/price-backtest.yml'
 
 jobs:
