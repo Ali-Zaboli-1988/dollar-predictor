@@ -35,7 +35,8 @@ jobs:
         run: python test_news_features_timeline.py
 
       - name: Run price history validation tests
-        run: python -m unittest tools/test_price_history_validation.py -v
+        working-directory: tools
+        run: python test_price_history_validation.py -v
 
       - name: Fetch 365 historical USD/IRR closes from TGJU
         run: |
