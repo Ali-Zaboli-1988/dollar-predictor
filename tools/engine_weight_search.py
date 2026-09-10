@@ -217,7 +217,9 @@ def search(rows: list[Row], train_size: int, test_size: int) -> tuple[Metrics, M
     directional_values = (-2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0)
     candidates = [Candidate(trend, 0.0, validation, regime)
                   for trend, validation, regime in itertools.product(directional_values, repeat=3)]
-    baseline = Candidate(1.0, 0.0, 0.0, 1.0)
+    # Exact baseline of the current Android directional engine when news is excluded:
+    # trend + validation + regime, with volatility contributing only to risk/confidence.
+    baseline = Candidate(1.0, 0.0, 1.0, 1.0)
     components = precompute_components(rows)
     selected_metrics: dict[Candidate, Metrics] = {}
     selections: list[tuple[int, int, Candidate]] = []
