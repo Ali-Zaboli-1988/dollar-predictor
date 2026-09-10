@@ -1,0 +1,29 @@
+{
+  "2026-09-01": {
+    "war": {"value": 120, "norm": 12000},
+    "sanctions": {"value": 60, "norm": 12000},
+    "oil": {"value": 48, "norm": 12000},
+    "diplomacy": {"value": 30, "norm": 12000},
+    "currency": {"value": 24, "norm": 12000},
+    "economy": {"value": 36, "norm": 12000},
+    "intervention": {"value": 6, "norm": 12000}
+  },
+  "2026-09-02": {
+    "war": {"value": 96, "norm": 16000},
+    "sanctions": {"value": 48, "norm": 16000},
+    "oil": {"value": 80, "norm": 16000},
+    "diplomacy": {"value": 64, "norm": 16000},
+    "currency": {"value": 40, "norm": 16000},
+    "economy": {"value": 32, "norm": 16000},
+    "intervention": {"value": 8, "norm": 16000}
+  },
+  "2026-09-03": {
+    "war": {"value": 180, "norm": 20000},
+    "sanctions": {"value": 100, "norm": 20000},
+    "oil": {"value": 60, "norm": 20000},
+    "diplomacy": {"value": 20, "norm": 20000},
+    "currency": {"value": 50, "norm": 20000},
+    "economy": {"value": 70, "norm": 20000},
+    "intervention": {"value": 25, "norm": 20000}
+  }
+}
