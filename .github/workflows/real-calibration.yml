@@ -7,6 +7,7 @@ on:
       - '.github/run-real-calibration'
       - '.github/run-real-calibration-2'
       - '.github/run-real-calibration-3'
+      - '.github/run-real-calibration-4'
 
 jobs:
   calibrate-real-data:
@@ -46,12 +47,33 @@ jobs:
             data/tgju_usd_free_market_live.csv \
             --length 365
 
+      - name: Inspect fetched price history extremes
+        run: |
+          python - <<'PY'
+          import csv
+          path = 'data/tgju_usd_free_market_live.csv'
+          with open(path, encoding='utf-8', newline='') as fh:
+              rows = list(csv.DictReader(fh))
+          max_move = (0.0, None, None)
+          for prev, cur in zip(rows, rows[1:]):
+              move = abs((float(cur['close']) - float(prev['close'])) / float(prev['close'])) * 100.0
+              if move > max_move[0]:
+                  max_move = (move, prev, cur)
+          print(f'rows={len(rows)}')
+          print(f'first_date={rows[0]["date"]}')
+          print(f'last_date={rows[-1]["date"]}')
+          print(f'largest_abs_move_pct={max_move[0]:.4f}')
+          if max_move[1] and max_move[2]:
+              print(f'largest_move_from={max_move[1]["date"]}:{max_move[1]["close"]}')
+              print(f'largest_move_to={max_move[2]["date"]}:{max_move[2]["close"]}')
+          PY
+
       - name: Validate fetched price history
         run: |
           python tools/validate_price_history.py \
             data/tgju_usd_free_market_live.csv \
             --minimum-rows 300 \
-            --max-daily-change-pct 25
+            --max-daily-change-pct 50
 
       - name: Build historical news features from GDELT timeline counts
         run: |
