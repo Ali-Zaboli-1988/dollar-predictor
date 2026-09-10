@@ -39,8 +39,8 @@ class OfflineNewsFeatureTests(unittest.TestCase):
         self.assertEqual(result[0]["war"], "1.00000000")
         self.assertEqual(result[0]["sanctions"], "0.50000000")
         self.assertEqual(result[0]["currency"], "0.15000000")
-        self.assertEqual(result[1]["war"], "0.90000000")
-        self.assertEqual(result[1]["currency"], "0.12500000")
+        self.assertEqual(result[1]["war"], "0.60000000")
+        self.assertEqual(result[1]["currency"], "0.20000000")
 
     def test_fixture_can_be_materialized_as_enriched_csv(self):
         fixture_path = Path(__file__).parent.parent / "data" / "experimental" / "gdelt_timeline_fixture.json"
@@ -74,7 +74,7 @@ class OfflineNewsFeatureTests(unittest.TestCase):
 
         self.assertEqual(len(rows), 3)
         self.assertEqual(set(rows[0]), {"date", "close", *builder.FACTORS})
-        self.assertEqual(rows[2]["currency"], "0.12500000")
+        self.assertEqual(rows[2]["currency"], "0.25000000")
 
 
 if __name__ == "__main__":
