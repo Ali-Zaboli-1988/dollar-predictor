@@ -29,6 +29,25 @@ class TestValidatePriceHistory(unittest.TestCase):
         self.assertEqual(result.first_date.isoformat(), "2026-06-01")
         self.assertEqual(result.last_date.isoformat(), "2026-06-03")
 
+    def test_scientific_notation_integer_is_accepted(self):
+        path = self.write_csv([
+            ["2026-06-01", "1e+06"],
+            ["2026-06-02", "1010000"],
+            ["2026-06-03", "1005000"],
+        ])
+        result = validate(path, minimum_rows=3)
+        self.assertEqual(result.rows, 3)
+        self.assertEqual(result.first_date.isoformat(), "2026-06-01")
+
+    def test_non_integer_price_is_rejected(self):
+        path = self.write_csv([
+            ["2026-06-01", "100000.5"],
+            ["2026-06-02", "101000"],
+            ["2026-06-03", "100500"],
+        ])
+        with self.assertRaises(ValueError):
+            validate(path, minimum_rows=3)
+
     def test_duplicate_date_is_rejected(self):
         path = self.write_csv([
             ["2026-06-01", "100000"],
