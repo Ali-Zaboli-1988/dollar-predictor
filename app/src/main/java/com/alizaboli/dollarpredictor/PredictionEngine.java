@@ -2,12 +2,15 @@ package com.alizaboli.dollarpredictor;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 /**
  * Reusable, UI-independent prediction logic.
  *
  * Price history must be newest-first, matching MarketRegime.detect().
- * News is optional; recognized terms contribute event pressure only.
+ * News is optional; recognized terms contribute directional pressure only.
+ * Volatility is intentionally NOT added to the directional score because
+ * volatility measures magnitude/risk, not market direction.
  */
 public final class PredictionEngine {
     private static final double MIN_CONFIDENCE = 20.0;
@@ -24,18 +27,25 @@ public final class PredictionEngine {
 
         int regimeAdjustment = regimeAdjustment(regime, stats.trendPct);
         int score = stats.trendScore
-                + stats.volatilityScore
                 + backtest.validationScore
                 + news.score
                 + regimeAdjustment;
 
         PredictionResult.Direction direction = direction(score);
-        int confidence = confidence(score, safeHistory.size(), news.evidenceCount, backtest, regime);
+        int confidence = confidence(
+                score,
+                safeHistory.size(),
+                news.evidenceCount,
+                backtest,
+                regime,
+                stats.volatilityPct);
         PredictionResult.RiskLevel risk = riskLevel(regime, stats.volatilityPct, confidence);
 
         ArrayList<String> factors = new ArrayList<>();
         addFactor(factors, stats.trendScore, "روند تاریخی صعودی", "روند تاریخی نزولی");
-        addFactor(factors, stats.volatilityScore, "نوسان بالا", "نوسان پایین");
+        if (stats.volatilityScore > 0) {
+            factors.add("نوسان بازار بالا است؛ نوسان به‌تنهایی جهت قیمت را تعیین نمی‌کند");
+        }
         addFactor(factors, news.score, "فشار خبری صعودی", "فشار خبری کاهشی");
         addFactor(factors, backtest.validationScore, "اعتبارسنجی روند مناسب", "اعتبارسنجی روند ضعیف");
         switch (regime.type) {
@@ -75,12 +85,22 @@ public final class PredictionEngine {
         return PredictionResult.Direction.NEUTRAL;
     }
 
-    private static int confidence(int score, int historySize, int evidence, BacktestStats backtest, MarketRegime regime) {
-        int confidence = 45 + Math.min(36, Math.abs(score) * 3 + Math.min(14, evidence * 2));
+    private static int confidence(
+            int score,
+            int historySize,
+            int evidence,
+            BacktestStats backtest,
+            MarketRegime regime,
+            double volatilityPct) {
+        int confidence = 45 + Math.min(30, Math.abs(score) * 3 + Math.min(14, evidence * 2));
         if (historySize >= 5) confidence += 5;
         if (backtest.samples >= 8) {
-            confidence += Math.min(7, backtest.accuracy >= 60.0 ? 7 : backtest.accuracy >= 52.0 ? 4 : 1);
+            confidence += Math.min(7,
+                    backtest.accuracy >= 60.0 ? 7 : backtest.accuracy >= 52.0 ? 4 : 1);
         }
+        if (volatilityPct >= 3.0) confidence -= 3;
+        else if (volatilityPct >= 1.5) confidence -= 1;
+
         switch (regime.type) {
             case SHOCK:
                 confidence -= 7;
@@ -98,7 +118,10 @@ public final class PredictionEngine {
         return clamp(confidence, (int) MIN_CONFIDENCE, (int) MAX_CONFIDENCE);
     }
 
-    private static PredictionResult.RiskLevel riskLevel(MarketRegime regime, double volatilityPct, int confidence) {
+    private static PredictionResult.RiskLevel riskLevel(
+            MarketRegime regime,
+            double volatilityPct,
+            int confidence) {
         if (regime.type == MarketRegime.Type.SHOCK || volatilityPct >= 3.0 || confidence < 45) {
             return PredictionResult.RiskLevel.HIGH;
         }
@@ -197,7 +220,7 @@ public final class PredictionEngine {
 
         for (String headline : headlines) {
             if (headline == null) continue;
-            String s = headline.toLowerCase(java.util.Locale.ROOT);
+            String s = headline.toLowerCase(Locale.ROOT);
             boolean relevant = false;
             if (containsAny(s, "war", "attack", "strike", "missile", "conflict", "escalation", "military", "hormuz", "blockade", "جنگ", "حمله", "موشک", "درگیری")) {
                 war += 3; relevant = true;
