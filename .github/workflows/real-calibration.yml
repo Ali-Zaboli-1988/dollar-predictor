@@ -81,7 +81,7 @@ jobs:
           python tools/build_news_features_timeline.py \
             data/tgju_usd_free_market_live.csv \
             data/tgju_usd_free_market_enriched.csv \
-            --sleep 1.5
+            --sleep 15
 
       - name: Validate enriched training data
         working-directory: tools
