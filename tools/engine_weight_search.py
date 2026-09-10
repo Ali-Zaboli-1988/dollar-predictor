@@ -4,7 +4,10 @@
 News is intentionally excluded because the repository does not yet contain a
 point-in-time historical news feature set. Each fold selects weights using only
 past observations, then evaluates exactly that selected candidate on the next
-unseen block. No future test block is used to rank candidates.
+unseen block.
+
+Volatility is deliberately excluded from the directional score because it is
+not directional. The Android engine uses volatility for confidence/risk only.
 """
 from __future__ import annotations
 
@@ -116,19 +119,11 @@ def regime_score(rows: list[Row], i: int) -> int:
 
 
 def validation_score(rows: list[Row], i: int) -> int:
-    """Score historical directional validation using rows strictly before i.
-
-    For a prediction made at index i, every validation sample must have its
-    trend window and its next-day outcome fully contained in rows[0:i]. This
-    prevents the validation component from reading the current/future row.
-    """
+    """Score historical directional validation using rows strictly before i."""
     if i < 8:
         return 0
     samples = hits = 0
     lb = min(5, i - 1)
-
-    # Historical transition j -> j+1 must finish before i. The trend used
-    # for that transition is measured from j-lb to j, so j starts at lb.
     for j in range(lb, i - 1):
         current = rows[j].close
         old = rows[j - lb].close
@@ -163,7 +158,6 @@ def validation_score(rows: list[Row], i: int) -> int:
 def predict(rows: list[Row], i: int, c: Candidate) -> int:
     score = (
         c.trend * trend_score(rows, i)
-        + c.volatility * volatility_score(rows, i)
         + c.validation * validation_score(rows, i)
         + c.regime * regime_score(rows, i)
     )
@@ -200,9 +194,10 @@ def select_candidate(rows: list[Row], candidates: list[Candidate], end: int) -> 
 
 
 def search(rows: list[Row], train_size: int, test_size: int) -> tuple[Metrics, Metrics, dict[Candidate, Metrics], list[tuple[int, int, Candidate]]]:
-    values = (0.5, 0.75, 1.0, 1.25, 1.5, 2.0)
-    candidates = [Candidate(*x) for x in itertools.product(values, repeat=4)]
-    baseline = Candidate(1.0, 1.0, 0.0, 1.0)
+    directional_values = (-2.0, -1.0, -0.5, 0.0, 0.5, 1.0, 2.0)
+    candidates = [Candidate(trend, 0.0, validation, regime)
+                  for trend, validation, regime in itertools.product(directional_values, repeat=3)]
+    baseline = Candidate(1.0, 0.0, 0.0, 1.0)
     selected_metrics: dict[Candidate, Metrics] = {}
     selections: list[tuple[int, int, Candidate]] = []
     aggregate = Metrics()
@@ -241,6 +236,7 @@ def main() -> int:
 
     print(f"rows={len(rows)}")
     print("news_weights=excluded_no_point_in_time_news_dataset")
+    print("volatility_weight=excluded_from_directional_score")
     print(f"walk_forward_oos_samples={aggregate.samples}")
     print(f"walk_forward_oos_hits={aggregate.hits}")
     print(f"walk_forward_oos_accuracy={aggregate.accuracy:.2f}")
