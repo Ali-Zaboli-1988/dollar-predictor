@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/run-real-calibration'
       - '.github/run-real-calibration-2'
+      - '.github/run-real-calibration-3'
 
 jobs:
   calibrate-real-data:
@@ -37,7 +38,7 @@ jobs:
 
       - name: Run price history validation tests
         working-directory: tools
-        run: python test_price_history_validation.py -v
+        run: python -m unittest test_price_history_validation.py -v
 
       - name: Fetch 365 historical USD/IRR closes from TGJU
         run: |
