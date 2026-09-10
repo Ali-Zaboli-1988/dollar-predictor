@@ -1,1 +1,1 @@
-Retrigger real calibration with normalized GDELT coverage and one-day point-in-time news lag.
+Retrigger real calibration after GDELT normalization, point-in-time lag, and directional-search hardening.
