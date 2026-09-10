@@ -91,6 +91,14 @@ def parse_gregorian(value: object) -> str | None:
     return None
 
 
+def format_close(number: float) -> str:
+    """Serialize prices without scientific notation."""
+    if number.is_integer():
+        return str(int(number))
+    text = format(number, ".15f").rstrip("0").rstrip(".")
+    return text
+
+
 def extract_rows(payload: dict) -> list[dict[str, str]]:
     output: list[dict[str, str]] = []
     for raw in payload["data"]:
@@ -100,7 +108,7 @@ def extract_rows(payload: dict) -> list[dict[str, str]]:
         day = parse_gregorian(raw[6])
         if close is None or day is None:
             continue
-        output.append({"date": day, "close": f"{close:g}"})
+        output.append({"date": day, "close": format_close(close)})
 
     dedup = {row["date"]: row for row in output}
     rows = [dedup[key] for key in sorted(dedup)]
