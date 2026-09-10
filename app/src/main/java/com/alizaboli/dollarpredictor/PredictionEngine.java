@@ -183,7 +183,7 @@ public final class PredictionEngine {
         int samples = 0;
         int hits = 0;
         int lookback = Math.min(5, history.size() - 2);
-        for (int i = history.size() - 2; i >= lookback; i--) {
+        for (int i = history.size() - 1 - lookback; i >= 1; i--) {
             long current = history.get(i);
             long oldest = history.get(i + lookback);
             long next = history.get(i - 1);
