@@ -15,8 +15,6 @@ def test_validation_score_uses_only_past_rows() -> None:
     cutoff = 12
     baseline = validation_score(rows, cutoff)
 
-    # Change only observations at/after the prediction cutoff. A historical
-    # validation score must be invariant to those future values.
     future_changed = rows[:cutoff] + [
         Row(str(i), 100000.0 - i * 1000.0) for i in range(cutoff, len(rows))
     ]
@@ -28,8 +26,7 @@ def test_validation_score_handles_prediction_near_end_without_index_error() -> N
     validation_score(rows, 8)
 
 
-def test_search_reports_baseline_on_exact_selected_folds() -> None:
-    # Enough observations to create multiple expanding walk-forward folds.
+def test_search_reports_baseline_on_exact_selected_folds_and_excludes_volatility_direction() -> None:
     rows = [Row(str(i), 100.0 + ((i % 9) - 4) * 0.8 + i * 0.2) for i in range(45)]
     selected, baseline, metrics, selections = search(rows, train_size=20, test_size=7)
 
@@ -37,11 +34,13 @@ def test_search_reports_baseline_on_exact_selected_folds() -> None:
     assert baseline.opportunities == selected.opportunities
     assert baseline.samples >= 0
     assert baseline.hits <= baseline.samples
-    assert Candidate(1.0, 1.0, 0.0, 1.0) not in metrics or metrics[Candidate(1.0, 1.0, 0.0, 1.0)].samples >= 0
+    assert all(candidate.volatility == 0.0 for _, _, candidate in selections)
+    assert any(candidate.trend < 0 or candidate.validation < 0 or candidate.regime < 0 for _, _, candidate in selections)
+    assert Candidate(1.0, 0.0, 0.0, 1.0) not in metrics or metrics[Candidate(1.0, 0.0, 0.0, 1.0)].samples >= 0
 
 
 if __name__ == "__main__":
     test_validation_score_uses_only_past_rows()
     test_validation_score_handles_prediction_near_end_without_index_error()
-    test_search_reports_baseline_on_exact_selected_folds()
+    test_search_reports_baseline_on_exact_selected_folds_and_excludes_volatility_direction()
     print("engine_weight_search_tests=PASS")
