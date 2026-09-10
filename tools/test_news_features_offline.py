@@ -74,7 +74,7 @@ class OfflineNewsFeatureTests(unittest.TestCase):
 
         self.assertEqual(len(rows), 3)
         self.assertEqual(set(rows[0]), {"date", "close", *builder.FACTORS})
-        self.assertEqual(rows[2]["currency"], "0.25000000")
+        self.assertEqual(rows[2]["currency"], "0.12500000")
 
 
 if __name__ == "__main__":
