@@ -1,1 +1,1 @@
-Retrigger real 365-day TGJU + GDELT calibration after standard unittest invocation fix.
+Retry real calibration after fixing TGJU close serialization (no scientific notation).
