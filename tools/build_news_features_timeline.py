@@ -14,7 +14,9 @@ from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 GDELT_URL = "https://api.gdeltproject.org/api/v2/doc/doc"
-MAX_RETRIES = 5
+MAX_RETRIES = 3
+RETRY_CAP_SECONDS = 60.0
+REQUEST_TIMEOUT_SECONDS = 30
 FACTORS = {
     "war": ("war", "attack", "strike", "missile", "conflict", "escalation", "military", "hormuz", "blockade"),
     "sanctions": ("sanction", "sanctions", "secondary sanctions", "treasury", "financial pressure", "maximum pressure"),
@@ -49,13 +51,18 @@ def _retry_delay(error: HTTPError, attempt: int) -> float:
     retry_after = error.headers.get("Retry-After") if error.headers else None
     if retry_after:
         try:
-            return max(1.0, min(300.0, float(retry_after)))
+            return max(1.0, min(RETRY_CAP_SECONDS, float(retry_after)))
         except ValueError:
             pass
-    return min(300.0, 15.0 * (2 ** (attempt - 1)))
+    return min(RETRY_CAP_SECONDS, 10.0 * (2 ** (attempt - 1)))
 
 
-def fetch_timeline(query: str, start_date: dt.date, end_date: dt.date, timeout: int = 45) -> dict[str, int]:
+def fetch_timeline(
+    query: str,
+    start_date: dt.date,
+    end_date: dt.date,
+    timeout: int = REQUEST_TIMEOUT_SECONDS,
+) -> dict[str, int]:
     start = dt.datetime.combine(start_date, dt.time.min, tzinfo=dt.timezone.utc)
     end = dt.datetime.combine(end_date + dt.timedelta(days=1), dt.time.min, tzinfo=dt.timezone.utc)
     params = {
@@ -67,15 +74,19 @@ def fetch_timeline(query: str, start_date: dt.date, end_date: dt.date, timeout: 
     }
     url = GDELT_URL + "?" + urlencode(params)
     for attempt in range(1, MAX_RETRIES + 1):
-        request = Request(url, headers={"User-Agent": "dollar-predictor/2.0 (+timeline-news-features)", "Accept": "application/json"})
+        request = Request(
+            url,
+            headers={
+                "User-Agent": "dollar-predictor/2.1 (+timeline-news-features)",
+                "Accept": "application/json",
+            },
+        )
         try:
             with urlopen(request, timeout=timeout) as response:
                 payload = json.load(response)
             timeline = payload.get("timeline", [])
             if not timeline:
                 return {}
-            # One query normally produces one series; if multiple series are returned,
-            # use the first series to avoid double-counting the same query result.
             series = timeline[0].get("data", [])
             result: dict[str, int] = {}
             for entry in series:
@@ -114,17 +125,23 @@ def build(prices: list[dict[str, str]], sleep_seconds: float = 1.5) -> list[dict
     start_date, end_date = dates[0], dates[-1]
     features = {day.isoformat(): {name: 0 for name in FACTORS} for day in dates}
     queries = factor_queries()
+    total_queries = len(queries) + 1
+
     for index, (factor, query) in enumerate(queries.items(), start=1):
+        print(f"gdelt_query={index}/{total_queries} factor={factor} start={start_date} end={end_date}", flush=True)
         timeline = fetch_timeline(query, start_date, end_date)
         for day, value in timeline.items():
             if day in features:
                 features[day][factor] = value
         if sleep_seconds > 0 and index < len(queries):
             time.sleep(sleep_seconds)
+
+    print(f"gdelt_query={total_queries}/{total_queries} factor=intervention start={start_date} end={end_date}", flush=True)
     intervention = fetch_timeline(intervention_query(), start_date, end_date)
     for day, value in intervention.items():
         if day in features:
             features[day]["currency"] = max(0, features[day]["currency"] - value)
+
     output = []
     for row in prices:
         day = parse_date(row["date"]).isoformat()
