@@ -8,6 +8,9 @@ unseen block.
 
 Volatility is deliberately excluded from the directional score because it is
 not directional. The Android engine uses volatility for confidence/risk only.
+
+Directional components are cached once per observation so the bounded grid
+search does not recompute historical validation for every candidate.
 """
 from __future__ import annotations
 
@@ -31,6 +34,13 @@ class Candidate:
     volatility: float
     validation: float
     regime: float
+
+
+@dataclass(frozen=True)
+class Components:
+    trend: int
+    validation: int
+    regime: int
 
 
 @dataclass
@@ -155,12 +165,20 @@ def validation_score(rows: list[Row], i: int) -> int:
     return 0
 
 
+def precompute_components(rows: list[Row]) -> list[Components]:
+    """Compute directional components once; all values use data available at i."""
+    return [Components(trend_score(rows, i), validation_score(rows, i), regime_score(rows, i))
+            for i in range(len(rows))]
+
+
 def predict(rows: list[Row], i: int, c: Candidate) -> int:
-    score = (
-        c.trend * trend_score(rows, i)
-        + c.validation * validation_score(rows, i)
-        + c.regime * regime_score(rows, i)
-    )
+    components = precompute_components(rows)
+    return predict_with_components(rows, i, c, components)
+
+
+def predict_with_components(rows: list[Row], i: int, c: Candidate, components: list[Components]) -> int:
+    part = components[i]
+    score = c.trend * part.trend + c.validation * part.validation + c.regime * part.regime
     if score >= 8:
         return 1
     if score <= -8:
@@ -168,10 +186,11 @@ def predict(rows: list[Row], i: int, c: Candidate) -> int:
     return 0
 
 
-def evaluate(rows: list[Row], start: int, end: int, c: Candidate) -> Metrics:
+def evaluate(rows: list[Row], start: int, end: int, c: Candidate, components: list[Components] | None = None) -> Metrics:
+    components = components if components is not None else precompute_components(rows)
     m = Metrics(opportunities=max(0, end - start))
     for i in range(start, end):
-        pred = predict(rows, i, c)
+        pred = predict_with_components(rows, i, c, components)
         actual = 1 if rows[i + 1].close > rows[i].close else -1 if rows[i + 1].close < rows[i].close else 0
         if pred == 0 or actual == 0:
             continue
@@ -180,10 +199,11 @@ def evaluate(rows: list[Row], start: int, end: int, c: Candidate) -> Metrics:
     return m
 
 
-def select_candidate(rows: list[Row], candidates: list[Candidate], end: int) -> Candidate | None:
+def select_candidate(rows: list[Row], candidates: list[Candidate], end: int, components: list[Components] | None = None) -> Candidate | None:
+    components = components if components is not None else precompute_components(rows)
     ranked: list[tuple[float, float, int, Candidate]] = []
     for c in candidates:
-        train = evaluate(rows, 10, end, c)
+        train = evaluate(rows, 10, end, c, components)
         if train.samples < 5:
             continue
         ranked.append((train.accuracy, train.coverage, train.samples, c))
@@ -198,6 +218,7 @@ def search(rows: list[Row], train_size: int, test_size: int) -> tuple[Metrics, M
     candidates = [Candidate(trend, 0.0, validation, regime)
                   for trend, validation, regime in itertools.product(directional_values, repeat=3)]
     baseline = Candidate(1.0, 0.0, 0.0, 1.0)
+    components = precompute_components(rows)
     selected_metrics: dict[Candidate, Metrics] = {}
     selections: list[tuple[int, int, Candidate]] = []
     aggregate = Metrics()
@@ -205,9 +226,9 @@ def search(rows: list[Row], train_size: int, test_size: int) -> tuple[Metrics, M
     start = train_size
     while start < len(rows) - 1:
         end = min(start + test_size, len(rows) - 1)
-        chosen = select_candidate(rows, candidates, start)
+        chosen = select_candidate(rows, candidates, start, components)
         if chosen is not None:
-            block = evaluate(rows, start, end, chosen)
+            block = evaluate(rows, start, end, chosen, components)
             aggregate.samples += block.samples
             aggregate.hits += block.hits
             aggregate.opportunities += block.opportunities
@@ -215,7 +236,7 @@ def search(rows: list[Row], train_size: int, test_size: int) -> tuple[Metrics, M
             metric.samples += block.samples
             metric.hits += block.hits
             metric.opportunities += block.opportunities
-            baseline_block = evaluate(rows, start, end, baseline)
+            baseline_block = evaluate(rows, start, end, baseline, components)
             baseline_selected_folds.samples += baseline_block.samples
             baseline_selected_folds.hits += baseline_block.hits
             baseline_selected_folds.opportunities += baseline_block.opportunities
