@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import math
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -32,9 +33,13 @@ def load_rows(path: str | Path) -> list[tuple[date, int]]:
         for line_no, row in enumerate(reader, start=2):
             try:
                 day = date.fromisoformat(row["date"].strip())
-                close = int(row["close"].strip())
+                raw_close = float(row["close"].strip().replace(",", ""))
             except Exception as exc:
                 raise ValueError(f"invalid row {line_no}: {row!r}") from exc
+
+            if not math.isfinite(raw_close) or not raw_close.is_integer():
+                raise ValueError(f"close must be a finite integer at row {line_no}: {row!r}")
+            close = int(raw_close)
             if close < 10_000 or close > 10_000_000:
                 raise ValueError(f"close out of range at row {line_no}: {close}")
             rows.append((day, close))
