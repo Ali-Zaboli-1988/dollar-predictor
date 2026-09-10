@@ -1,0 +1,67 @@
+name: Experimental News Pipeline
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'tools/build_news_features_timeline.py'
+      - 'tools/test_news_features_timeline.py'
+      - 'tools/test_news_features_offline.py'
+      - 'data/experimental/**'
+  workflow_dispatch:
+
+jobs:
+  offline-news:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run offline experimental news tests
+        working-directory: tools
+        run: python -m unittest test_news_features_timeline.py test_news_features_offline.py -v
+
+      - name: Materialize offline enriched dataset
+        run: |
+          python - <<'PY'
+          import csv
+          import json
+          from pathlib import Path
+          import sys
+          sys.path.insert(0, 'tools')
+          import build_news_features_timeline as builder
+
+          fixture_path = Path('data/experimental/gdelt_timeline_fixture.json')
+          output_path = Path('data/experimental/offline_enriched_fixture.csv')
+          fixture = json.loads(fixture_path.read_text(encoding='utf-8'))
+          prices = [{'date': day, 'close': '220000'} for day in fixture]
+
+          def timeline_for(query, start_date, end_date):
+              key = 'intervention' if query == builder.intervention_query() else next(
+                  name for name, q in builder.factor_queries().items() if q == query
+              )
+              return {
+                  day: builder.normalize_timeline_entry(values[key]['value'], values[key]['norm'])
+                  for day, values in fixture.items()
+              }
+
+          original = builder.fetch_timeline
+          builder.fetch_timeline = timeline_for
+          try:
+              rows = builder.build(prices, sleep_seconds=0, news_lag_days=1)
+          finally:
+              builder.fetch_timeline = original
+          builder.write_csv(rows, output_path)
+          print(f'wrote={output_path} rows={len(rows)} experimental_only=true')
+          PY
+
+      - name: Publish experimental dataset artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: experimental-offline-news-fixture
+          path: data/experimental/offline_enriched_fixture.csv
