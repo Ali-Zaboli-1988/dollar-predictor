@@ -70,15 +70,13 @@ jobs:
             echo '--- ACTIVITY ---'
             ACTIVITY_OUTPUT="$(adb shell dumpsys activity activities | grep -i 'dollarpredictor' || true)"
             echo "${ACTIVITY_OUTPUT}"
-            if ! printf '%s
-' "${ACTIVITY_OUTPUT}" | grep -Fq 'com.alizaboli.dollarpredictor/.MainActivity'; then
+            if ! echo "${ACTIVITY_OUTPUT}" | grep -Fq 'com.alizaboli.dollarpredictor/.MainActivity'; then
               echo 'Activity not observed; retrying after backoff'
               adb shell sleep 2
               ACTIVITY_OUTPUT="$(adb shell dumpsys activity activities | grep -i 'dollarpredictor' || true)"
               echo "${ACTIVITY_OUTPUT}"
             fi
-            printf '%s
-' "${ACTIVITY_OUTPUT}" | grep -Fq 'com.alizaboli.dollarpredictor/.MainActivity'
+            echo "${ACTIVITY_OUTPUT}" | grep -Fq 'com.alizaboli.dollarpredictor/.MainActivity'
             echo '--- PROCESS (DIAGNOSTIC ONLY) ---'
             PID="$(adb shell pidof com.alizaboli.dollarpredictor || true)"
             echo "PID=${PID}"
