@@ -51,11 +51,22 @@ jobs:
             adb shell pm path com.alizaboli.dollarpredictor
             echo '--- START ACTIVITY ---'
             adb shell am start -n com.alizaboli.dollarpredictor/.MainActivity
-            sleep 3
-            echo '--- PROCESS ---'
-            adb shell pidof com.alizaboli.dollarpredictor
+            echo '--- WAIT FOR ACTIVITY ---'
+            adb shell sleep 3
             echo '--- ACTIVITY ---'
-            adb shell dumpsys activity activities | grep -F 'com.alizaboli.dollarpredictor/.MainActivity' | head -n 5
+            ACTIVITY_OUTPUT="$(adb shell dumpsys activity activities | grep -i 'dollarpredictor' || true)"
+            echo "${ACTIVITY_OUTPUT}"
+            if ! printf '%s\n' "${ACTIVITY_OUTPUT}" | grep -Fq 'com.alizaboli.dollarpredictor/.MainActivity'; then
+              echo 'Activity not observed; retrying after backoff'
+              adb shell sleep 2
+              ACTIVITY_OUTPUT="$(adb shell dumpsys activity activities | grep -i 'dollarpredictor' || true)"
+              echo "${ACTIVITY_OUTPUT}"
+            fi
+            printf '%s\n' "${ACTIVITY_OUTPUT}" | grep -Fq 'com.alizaboli.dollarpredictor/.MainActivity'
+            echo '--- PROCESS (DIAGNOSTIC ONLY) ---'
+            PID="$(adb shell pidof com.alizaboli.dollarpredictor || true)"
+            echo "PID=${PID}"
+            if [ -z "${PID}" ]; then echo 'PID_NOT_OBSERVED'; fi
 
       - name: Collect emulator diagnostics on failure
         if: failure()
@@ -66,4 +77,6 @@ jobs:
           profile: pixel_2
           script: |
             adb shell pm list packages | grep -F com.alizaboli.dollarpredictor || true
+            adb shell dumpsys activity activities | grep -i dollarpredictor || true
+            adb shell ps | grep -i dollarpredictor || true
             adb logcat -d -t 300 | grep -E 'AndroidRuntime|FATAL EXCEPTION|dollarpredictor' | tail -n 120 || true
