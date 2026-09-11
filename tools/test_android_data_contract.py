@@ -4,6 +4,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MAIN = ROOT / "app/src/main/java/com/alizaboli/dollarpredictor/MainActivity.java"
+ENGINE = ROOT / "app/src/main/java/com/alizaboli/dollarpredictor/PredictionEngine.java"
+FLAGS = ROOT / "app/src/main/java/com/alizaboli/dollarpredictor/FeatureFlags.java"
 MANIFEST = ROOT / "app/src/main/AndroidManifest.xml"
 
 
@@ -11,6 +13,8 @@ class AndroidDataContractTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.main = MAIN.read_text(encoding="utf-8")
+        cls.engine = ENGINE.read_text(encoding="utf-8")
+        cls.flags = FLAGS.read_text(encoding="utf-8")
         cls.manifest = MANIFEST.read_text(encoding="utf-8")
 
     def test_price_has_two_providers_and_timeouts(self):
@@ -32,7 +36,13 @@ class AndroidDataContractTest(unittest.TestCase):
         self.assertRegex(self.main, r"value\s*>=\s*10000")
         self.assertRegex(self.main, r"value\s*<=\s*1000000")
 
-    def test_news_is_optional_and_failure_safe(self):
+    def test_news_is_experimental_and_off_by_default(self):
+        self.assertIn("EXPERIMENTAL_NEWS_ENABLED", self.flags)
+        self.assertIn("EXPERIMENTAL_NEWS_ENABLED = false", self.flags)
+        self.assertIn("FeatureFlags.EXPERIMENTAL_NEWS_ENABLED", self.engine)
+        self.assertIn("new NewsStats(0, 0)", self.engine)
+
+    def test_news_is_failure_safe(self):
         self.assertIn("if (news.isEmpty())", self.main)
         self.assertIn("catch (Exception ignored)", self.main)
 
