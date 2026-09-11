@@ -23,7 +23,9 @@ public final class PredictionEngine {
         HistoryStats stats = historyStats(safeHistory);
         BacktestStats backtest = trendBacktest(safeHistory);
         MarketRegime regime = MarketRegime.detect(safeHistory);
-        NewsStats news = newsStats(safeNews);
+        NewsStats news = FeatureFlags.EXPERIMENTAL_NEWS_ENABLED
+                ? newsStats(safeNews)
+                : new NewsStats(0, 0);
 
         int regimeAdjustment = regimeAdjustment(regime, stats.trendPct);
         int score = stats.trendScore
