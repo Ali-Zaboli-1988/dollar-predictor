@@ -49,7 +49,9 @@ public class PredictionEngineTest {
     }
 
     @Test
-    public void adverseAndSupportiveNewsChangeDirectionalScore() {
+    public void experimentalNewsIsIgnoredWhileFeatureFlagIsOff() {
+        assertTrue(!FeatureFlags.EXPERIMENTAL_NEWS_ENABLED);
+
         ArrayList<Long> history = new ArrayList<>();
         for (long value = 140; value >= 100; value -= 4) history.add(value);
 
@@ -61,10 +63,10 @@ public class PredictionEngineTest {
                 history,
                 Collections.singletonList("Iran ceasefire talks and peace agreement continue"));
 
-        assertTrue(sanctionsNews.score > neutralNews.score);
-        assertTrue(diplomacyNews.score < neutralNews.score);
-        assertTrue(sanctionsNews.factors.size() > 0);
-        assertTrue(diplomacyNews.factors.size() > 0);
+        assertEquals(neutralNews.score, sanctionsNews.score);
+        assertEquals(neutralNews.score, diplomacyNews.score);
+        assertEquals(0, sanctionsNews.score - neutralNews.score);
+        assertEquals(0, diplomacyNews.score - neutralNews.score);
     }
 
     @Test
