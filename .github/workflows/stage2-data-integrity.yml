@@ -1,0 +1,34 @@
+name: Stage 2 Data Integrity
+
+on:
+  push:
+    paths:
+      - 'app/**'
+      - 'tools/**'
+      - 'data/**'
+      - '.github/workflows/stage2-data-integrity.yml'
+  workflow_dispatch:
+
+jobs:
+  data-integrity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Validate repository data contracts
+        run: python -m unittest tools/test_android_data_contract.py -v
+
+      - name: Run Android unit tests
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
+
+      - name: Android unit tests
+        run: gradle --no-daemon :app:testDebugUnitTest
