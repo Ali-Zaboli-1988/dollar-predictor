@@ -67,20 +67,10 @@ jobs:
             adb shell am start -n com.alizaboli.dollarpredictor/.MainActivity
             echo '--- WAIT FOR ACTIVITY ---'
             adb shell sleep 3
-            echo '--- ACTIVITY ---'
-            ACTIVITY_OUTPUT="$(adb shell dumpsys activity activities | grep -i 'dollarpredictor' || true)"
-            echo "${ACTIVITY_OUTPUT}"
-            if ! echo "${ACTIVITY_OUTPUT}" | grep -Fq 'com.alizaboli.dollarpredictor/.MainActivity'; then
-              echo 'Activity not observed; retrying after backoff'
-              adb shell sleep 2
-              ACTIVITY_OUTPUT="$(adb shell dumpsys activity activities | grep -i 'dollarpredictor' || true)"
-              echo "${ACTIVITY_OUTPUT}"
-            fi
-            echo "${ACTIVITY_OUTPUT}" | grep -Fq 'com.alizaboli.dollarpredictor/.MainActivity'
+            echo '--- ACTIVITY WITH RETRY/BACKOFF ---'
+            for DELAY in 0 2 4 8; do [ "${DELAY}" -eq 0 ] || adb shell sleep "${DELAY}"; adb shell dumpsys activity activities | tee /tmp/activity-output.txt | grep -Fq 'com.alizaboli.dollarpredictor/.MainActivity' && exit 0; echo "Activity not observed; retrying after backoff ${DELAY}s"; done; cat /tmp/activity-output.txt; exit 1
             echo '--- PROCESS (DIAGNOSTIC ONLY) ---'
-            PID="$(adb shell pidof com.alizaboli.dollarpredictor || true)"
-            echo "PID=${PID}"
-            if [ -z "${PID}" ]; then echo 'PID_NOT_OBSERVED'; fi
+            PID="$(adb shell pidof com.alizaboli.dollarpredictor || true)"; echo "PID=${PID}"; [ -n "${PID}" ] || echo 'PID_NOT_OBSERVED'
 
       - name: Collect emulator diagnostics on failure
         if: failure()
